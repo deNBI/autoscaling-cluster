@@ -1,0 +1,314 @@
+openapi: '3.0.2'
+info:
+  title: API documentation for autoscaling slurm cluster
+  version: '1.0'
+  description: used on the denbi.de development portal
+servers:
+  - url: https://portal-dev.denbi.de/portal/public/
+    description: scaling URL
+paths:
+
+  /clusters_scaling/{cluster_id}/scale-up/:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+
+    post:
+      security:
+        - basicAuth: [ ]
+      tags:
+        - scale-up
+      requestBody:
+
+        # old version
+        #$ref: '#/components/requestBodies/cluster_scale-up'
+
+        $ref: '#/components/requestBodies/cluster_scale-up_flavors'
+      responses:
+        '200':
+          $ref: '#/components/responses/scaling'
+        '400':
+          description: '{"error":"1 additional workers requested, only 0 possible"}'
+        '401':
+          description: unauthorized
+        '500':
+          description: internal server error, possible bad cluster data
+
+  /clusters_scaling/{cluster_id}/scale-down/:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+
+    post:
+      security:
+        - basicAuth: [ ]
+      tags:
+        - scale-down
+      requestBody:
+        $ref: '#/components/requestBodies/cluster_scale-down'
+      responses:
+        '200':
+          $ref: '#/components/responses/scaling'
+        '401':
+          description: unauthorized
+  /clusters_scaling/{cluster_id}/scale-down/specific/:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+
+    post:
+      security:
+        - basicAuth: [ ]
+      tags:
+        - scale-down
+      requestBody:
+        $ref: '#/components/requestBodies/cluster_specific'
+      responses:
+        '200':
+          $ref: '#/components/responses/scaling'
+        '401':
+          description: unauthorized
+
+  /clusters/{cluster_id}/:
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+
+    post:
+      security:
+        - basicAuth: [ ]
+      tags:
+        - info
+      requestBody:
+        $ref: '#/components/requestBodies/cluster_info'
+      responses:
+        '200':
+          $ref: '#/components/responses/worker_info'
+        '401':
+          description: unauthorized
+        '500':
+          description: internal server error, possible bad cluster data
+      description: return current workers with state
+
+  /clusters_scaling/{cluster_id}/usable_flavors/":
+    parameters:
+      - $ref: '#/components/parameters/cluster_id'
+
+    post:
+      security:
+        - basicAuth: [ ]
+      tags:
+        - info
+      requestBody:
+        $ref: '#/components/requestBodies/cluster_info'
+      responses:
+        '200':
+          $ref: '#/components/responses/flavors'
+        '401':
+          description: unauthorized
+        '500':
+          description: internal server error, possible bad cluster data
+      description: return availabe flavors
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+  parameters:
+    cluster_id:
+      name: cluster_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: cluster id
+      example: czi1k7wir1kyt2s
+  
+  requestBodies:
+    cluster_scale-up:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/clusterData_scale-up'
+    cluster_scale-up_flavors:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/clusterData_scale-up_flavors'
+    cluster_scale-down:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/clusterData_scale-down'
+    cluster_specific:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/clusterData_scale-down-specific'
+    cluster_info:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/clusterData_info'
+
+  responses:
+    scaling:
+      description: Executed, scaling done or in progress
+      content:
+        application/json:
+          schema:
+            items:
+              $ref: '#/components/schemas/passwordItem'
+    flavors:
+      description: flavor data
+      content:
+        application/json:
+          schema:
+            items:
+              $ref: '#/components/schemas/flavorData'
+
+    worker_info:
+      description: receive worker information
+      content:
+        application/json:
+          schema:
+            properties:
+              active_worker:
+                type: object
+                properties:
+                  ip:
+                    type: string
+                    example: 192.168.1.17
+                  cores:
+                    type: integer
+                    example: 4
+                  hostname:
+                    type: string
+                    example: bibigrid-worker-1-1-3zytxfzrsrcl8ku
+                  memory:
+                    type: string
+                    example: 4096
+                  status:
+                    type: string
+                    example: ACTIVE
+                  ephemerals:
+                    type: array
+                    example: [ ... ]
+              version:
+                type: string
+                example: 0.2.0
+
+  schemas:
+    clusterData_scale-down-specific:
+      type: object
+      properties:
+        password:
+          $ref: '#/components/schemas/passwordItem'
+        worker_batch:
+          $ref: '#/components/schemas/worker_hostnames'
+      description: clusterData scale-down specific
+
+    clusterData_scale-down:
+      type: object
+      properties:
+        password:
+          $ref: '#/components/schemas/passwordItem'
+        worker_batch:
+          $ref: '#/components/schemas/worker_batch'
+      description: clusterData scale-down
+
+    clusterData_scale-up:
+      type: object
+      properties:
+        password:
+          $ref: '#/components/schemas/passwordItem'
+        worker_batch:
+          $ref: '#/components/schemas/worker_batches'
+      description: clusterData scale-up
+    
+    clusterData_scale-up_flavors:
+      type: object
+      properties:
+        password:
+          $ref: '#/components/schemas/passwordItem'
+        worker_flavor_name:
+          type: string
+          example: de.NBI tiny
+        upscale_count:
+          type: integer
+          example: 1
+      description: clusterData scale-up specific flavors
+
+    clusterData_info:
+      type: object
+      properties:
+        password:
+          $ref: '#/components/schemas/passwordItem'
+      description: clusterData receive worker status
+
+    worker_hostnames:
+      type: array
+      items:
+        type: string
+      description: scale-down - specific
+      example: [ "host1","host2",... ]
+
+    worker_batch:
+      type: object
+      properties:
+        flavor:
+          $ref: '#/components/schemas/flavor'
+        index:
+          type: integer
+          example: 1
+        upscale_count:
+          type: integer
+          example: 1
+      description: scale-up
+    
+    worker_batches:
+      type: object
+      properties:
+        flavor:
+          $ref: '#/components/schemas/flavor'
+        index:
+          type: integer
+          example: 1
+        delete_count:
+          type: integer
+          example: 1
+      description: scale-down - random
+
+
+    flavor:
+      type: object
+      properties:
+        name:
+          type: string
+          example: de.NBI tiny
+
+    passwordItem:
+      type: object
+      properties:
+        name:
+          type: string
+        password:
+          type: string
+      example: '{"password":"new_password"}'
+      description: receive new cluster password as json object
+
+    flavorData:
+      type: object
+      properties:
+        available_count:
+          type: integer
+        flavor:
+          type: object
+          properties:
+            name:
+              type: string
+              example: de.NBI large + ephemeral
+            ram:
+              type: string
+              example: 64
+            vcpus:
+              type: string
+              example: 28
+      description: receive flavor information
