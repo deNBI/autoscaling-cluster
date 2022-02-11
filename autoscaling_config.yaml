@@ -1,0 +1,129 @@
+scaling:
+  portal:
+    portal_link: https://cloud.denbi.de
+
+  mode:
+    default:
+      # ---------- scale force ----------
+      scale_force: 0.6                # higher - higher scaling (0-1)
+
+      # ---------- scale wait ----------
+      scale_delay_wait: 60            # wait for scaling and recheck values
+      scale_down_freq: 5              # wait time before scale down since last job start
+
+      # ---------- scale force worker ----------
+      scale_force_worker: True        # reduce starting new workers based on the number of currently existing workers
+      scale_force_worker_weight: 0.02 # reduce chance of new workers by current worker count
+
+      # ---------- job time ----------
+      job_time_long: 600
+      job_time_short: 160
+      job_time_range_automatic: True
+
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.9            # include only jobs in calculation by ths name match value (SequenceMatcher)
+      job_match_similar: 0.4          # lower value - tend to start new workers,
+                                      # but indeed, a similar job took comparatively little time
+      job_match_search: True
+      scale_force_job_weight: 0.05    # used by similar job search, increases chance of new worker by job pending count
+
+      # ---------- flavor selection ----------
+      flavor_fix: False               # if deactivated, use the default flavor
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: True          # only use ephemeral flavors
+
+      # ---------- prediction by daytime ----------
+      prediction_force: False
+      # weight for cpu memory and minutes
+      prediction_balance_cpu: 0.9
+      prediction_balance_mem: 1.1
+      prediction_balance_min: 1
+
+      # ---------- job priority ----------
+      sort_jobs_by_memory: True       # sort jobs by memory as secondary condition, first priority (scheduler)
+                                      # only autoscaling considers this order to start new workers
+                                      # true, high memory workers first
+
+    adoptive:
+      sort_jobs_by_memory: True
+      scale_delay_wait: 60
+
+      scale_force: 0.6
+      scale_force_worker: True
+      scale_force_worker_weight: 0.02
+      scale_force_job_weight: 0.05
+
+      job_time_long: 600
+      job_time_short: 160
+      job_time_range_automatic: True
+
+      job_match_value: 0.9
+      job_match_similar: 0.4
+      job_match_search: True
+
+      flavor_fix: False
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: True
+
+      scale_down_freq: 5
+
+      prediction_force: True
+      prediction_balance_cpu: 0.9
+      prediction_balance_mem: 1.1
+      prediction_balance_min: 1
+
+    max:
+      sort_jobs_by_memory: True
+      scale_delay_wait: 60
+
+      scale_force: 0.8
+      scale_force_worker: False
+      scale_force_worker_weight: 0.02
+      scale_force_job_weight: 0.05
+
+      job_time_long: 600
+      job_time_short: 160
+      job_time_range_automatic: False
+
+      job_match_value: 0.9
+      job_match_similar: 0.4
+      job_match_search: False
+
+      flavor_fix: False
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: True
+
+      scale_down_freq: 5
+
+      prediction_force: True
+      prediction_balance_cpu: 0.9
+      prediction_balance_mem: 1.1
+      prediction_balance_min: 1
+
+    static:
+      sort_jobs_by_memory: False
+      scale_delay_wait: 60
+
+      scale_force: 0.8
+      scale_force_worker: False
+      scale_force_worker_weight: 0.02
+      scale_force_job_weight: 0.05
+
+      job_time_long: 600
+      job_time_short: 160
+      job_time_range_automatic: False
+
+      job_match_value: 0.9
+      job_match_similar: 0.4
+      job_match_search: False
+
+      flavor_fix: True
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: False
+
+      scale_down_freq: 5
+
+      prediction_force: False
+      prediction_balance_cpu: 0.9
+      prediction_balance_mem: 1.1
+      prediction_balance_min: 1
