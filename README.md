@@ -5,7 +5,7 @@
 #### required packages
 ##### ubuntu 20.04
 ```console
-apt-get install -y mariadb-server slurmdbd cython3 libslurm-dev
+apt install -y mariadb-server slurmdbd cython3 libslurm-dev
 ```
 ##### ubuntu 18.04
 ```console
@@ -20,11 +20,7 @@ The cluster password should be in the same folder as the autoscaling program.
 {"password":"CLUSTER_PASSWORD"}`
 ```
 #### start as service
-##### crontab
-For example, start the program every 5 minutes:
-```console
-*/5 *  * * *   ubuntu  python3 /home/ubuntu/autoscaling/autoscaling.py
-```
+
 ##### systemd
 `/etc/systemd/system/autoscaling.service`
 ```console
@@ -48,7 +44,6 @@ Add the configuration to slurm.conf
 
 ```console
 ClusterName=bibigrid
-
 AccountingStorageType=accounting_storage/slurmdbd
 AccountingStoreJobComment=YES
 
@@ -102,7 +97,7 @@ PidFile=/var/run/slurm-llnl/slurmdbd.pid
 SlurmUser=slurm
 ```
 
-##### install mysql database
+##### setup mysql database
 
 ```console
 sudo mysql -u $user -p"$passsword" -Bse "create user 'slurm'@'localhost' identified by 'YOUR_DB_PASSWORD';"
@@ -123,8 +118,6 @@ sudo systemctl restart slurmctld.service
 
 #### pyslurm @ ubuntu 20.04
 
-##### location and slurm version
-
 ##### install
 
 ```console
@@ -143,8 +136,6 @@ cd ${INSTALLPATH} && \
 
 #### pyslurm @ ubuntu 18.04
 
-##### location and slurm version
-
 ##### install
 
 ```console
@@ -159,4 +150,24 @@ cd ${INSTALLPATH} && \
  python3 setup.py build --slurm=/usr/ --slurm-inc=/usr/include/ --slurm-lib=/usr/lib/x86_64-linux-gnu/  && \
  python3 setup.py install && \
  python3 setup.py clean
+```
+
+### dummy worker config
+Make Slurm think the resources are available, we're adding a fake worker with the max resources available.
+
+#### slurm template
+`${HOME}/playbook/roles/common/templates/slurm/slurm.conf`
+```console
+# NODE CONFIGURATIONS
+NodeName=bibigrid-worker-autoscaling_dummy SocketsPerBoard=28 CoresPerSocket=1 RealMemory=60000
+```
+```console
+# PARTITION CONFIGURATIONS
+PartitionName=debug Nodes={% if use_master_as_compute == 'yes' %}{{master.hostname}},{%endif%}{{sl|join(",")}},bibigrid-worker-autoscaling_dummy default=YES
+```
+
+#### setup hostname
+`/etc/hosts`
+```console
+0.0.0.4 bibigrid-worker-autoscaling_dummy
 ```
