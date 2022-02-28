@@ -25,7 +25,7 @@ scaling:
       job_match_similar: 0.4          # lower value - tend to start new workers,
                                       # but indeed, a similar job took comparatively little time
       job_match_search: True
-      scale_force_job_weight: 0.05    # used by similar job search, increases chance of new worker by job pending count
+      scale_force_job_weight: 0.03    # used by similar job search, increases chance of new worker by job pending count
 
       # ---------- flavor selection ----------
       flavor_fix: False               # if deactivated, use the default flavor
@@ -43,6 +43,19 @@ scaling:
       sort_jobs_by_memory: True       # sort jobs by memory as secondary condition, first priority (scheduler)
                                       # only autoscaling considers this order to start new workers
                                       # true, high memory workers first
+      # ---------- node selection ----------
+      # prefer_high_nodes and drain_high_nodes are incompatible, one mode option should be False!
+      prefer_high_nodes: False   # start jobs on high nodes
+      drain_high_nodes: False   # set high nodes to drain, if lower nodes possible for pending jobs
+
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |        # do not change setting names - delete lower lines for default
+        PriorityType=priority/multifactor
+        PriorityFlags=MAX_TRES
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
 
     adoptive:
       sort_jobs_by_memory: True
@@ -72,6 +85,11 @@ scaling:
       prediction_balance_mem: 1.1
       prediction_balance_min: 1
 
+      prefer_high_nodes: False
+      drain_high_nodes: True
+
+      scheduler_settings:
+
     max:
       sort_jobs_by_memory: True
       scale_delay_wait: 60
@@ -100,6 +118,12 @@ scaling:
       prediction_balance_mem: 1.1
       prediction_balance_min: 1
 
+      prefer_high_nodes: True
+      drain_high_nodes: False
+
+      scheduler_settings: ''
+
+
     static:
       sort_jobs_by_memory: False
       scale_delay_wait: 60
@@ -127,3 +151,8 @@ scaling:
       prediction_balance_cpu: 0.9
       prediction_balance_mem: 1.1
       prediction_balance_min: 1
+
+      prefer_high_nodes: False
+      drain_high_nodes: False
+
+      scheduler_settings: ''
