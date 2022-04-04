@@ -1,0 +1,5 @@
+BATCH 1:
+  INDEX: 1
+  TYPE: de.NBI large + ephemeral
+  IMAGE: Ubuntu 20.04 LTS (2021-12-13)
+  NETWORK: portal-pool-network

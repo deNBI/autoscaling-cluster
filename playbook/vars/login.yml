@@ -1,0 +1,4 @@
+mode: openstack
+default_user: userName
+ssh_user: ubuntu
+munge_key: a*******************************************************a

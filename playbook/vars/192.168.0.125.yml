@@ -1,0 +1,7 @@
+cores: 28
+ephemerals:
+- dev/vdb
+hostname: bibigrid-worker-1-30-lcgzfbgirbqeu6o
+ip: 192.168.0.125
+memory: 65536
+status: ACTIVE

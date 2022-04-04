@@ -1,0 +1,14 @@
+CIDR: 192.168.0.0/24
+local_fs: xfs
+enable_nfs: 'yes'
+local_dns_lookup: 'no'
+enable_gridengine: 'no'
+enable_slurm: 'yes'
+use_master_as_compute: 'no'
+enable_ganglia: 'no'
+enable_zabbix: 'no'
+enable_ide: 'no'
+nfs_mounts:
+- src: /vol/spool
+  dst: /vol/spool
+ext_nfs_mounts: []

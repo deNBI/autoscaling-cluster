@@ -1,0 +1,6 @@
+cores: 2
+ephemerals: []
+hostname: bibigrid-worker-5-2-lcgzfbgirbqeu6o
+ip: 192.168.0.80
+memory: 4096
+status: ACTIVE
