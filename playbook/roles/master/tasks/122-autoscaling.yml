@@ -1,0 +1,48 @@
+
+- name: Create autoscaling systemd service file
+  template:
+    src: autoscaling/autoscaling.service
+    dest: /etc/systemd/system/autoscaling.service
+
+- name: Download autoscaling
+  ansible.builtin.shell: "{{ scaling_config.source_link }} >{{ autoscaling_home }}/autoscaling.py"
+  args:
+    executable: /bin/bash
+    creates: "{{ autoscaling_home }}/autoscaling.py"
+  become_user: "{{ autoscaling_user }}"
+
+- name: Download autoscaling config
+  ansible.builtin.shell: "{{ scaling_config.config_link }} >{{ autoscaling_home }}/autoscaling_config.yaml"
+  args:
+    executable: /bin/bash
+    creates: "{{ autoscaling_home }}/autoscaling_config.yaml"
+  become_user: "{{ autoscaling_user }}"
+
+- name: Check if password file exist
+  stat:
+    path: "{{ scaling_files.cluster_pw }}"
+  register: cluster_pw
+
+#- name: Start autoscaling service
+#  systemd:
+#    name: autoscaling
+#    state: started
+#  when: cluster_pw.stat.exists == True
+
+- name: Add alias for autoscaling
+  ansible.builtin.lineinfile:
+    path=/home/{{autoscaling_user}}/.bashrc
+    line="alias autoscaling='{{ autoscaling_home }}/{{ autoscaling_env }}/bin/python {{ autoscaling_home }}/autoscaling.py'"
+    regexp='^alias autoscaling='
+    state=present
+    insertafter=EOF
+  become_user: "{{ autoscaling_user }}"
+
+- name: Add alias for playbook
+  ansible.builtin.lineinfile:
+    path=/home/{{autoscaling_user}}/.bashrc
+    line="alias ansible_playbook_run='cd /home/{{autoscaling_user}}/playbook && ansible-playbook -v -i ansible_hosts  site.yml'"
+    regexp='^alias ansible_playbook_run='
+    state=present
+    insertafter=EOF
+  become_user: "{{ autoscaling_user }}"

@@ -38,6 +38,18 @@
     - enable_gridengine == 'yes'
   tags: ["master-gridengine","gridengine"]
 
+- debug:
+    msg: "[SCALING] virtualenv"
+- import_tasks: 015-virtualenv.yml
+  tags: ["virtualenv"]
+
+- debug:
+    msg: "[SCALING] Setup mysql db"
+- include: 018-mysql.yml
+  when:
+    - enable_slurm == 'yes'
+  tags: ["master-mysql","mysql","slurm"]
+
 - block:
   - debug:
       msg: "[BIBIGRID] Setup Slurm master"
@@ -55,3 +67,20 @@
   when:
     - enable_ide == 'yes'
   tags: ["master-theia","theia"]
+
+
+- debug:
+    msg: "[SCALING] worker dummy setup"
+- import_tasks: 111-hosts_dummy.yml
+  tags: ["dummy_worker"]
+
+- debug:
+    msg: "[SCALING] pyslurm in virtualenv"
+- import_tasks: 121-pyslurm.yml
+  tags: ["pyslurm"]
+
+- debug:
+    msg: "[SCALING] autoscaling conf"
+- import_tasks: 122-autoscaling.yml
+  tags: ["autoscaling"]
+

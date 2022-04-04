@@ -106,6 +106,12 @@
     state: present
   when: "ansible_distribution == 'Ubuntu' and ansible_distribution_release == 'xenial'"
 
+#- name: Add Slurm denbi.de repository
+#  apt_repository:
+#    #repo: 'deb [trusted=yes] https://apt.bi.denbi.de/repos/apt/bionic/ bionic main binary-amd64'
+#    repo: 'deb [trusted=yes] https://apt.bi.denbi.de/repos/apt/{{ ansible_distribution_release | lower }}/ {{ ansible_distribution_release | lower }} main binary-amd64'
+#    state: present
+
 - name: Update apt cache
   apt:
     upgrade: 'yes'

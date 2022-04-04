@@ -1,0 +1,5 @@
+scaling_config:
+  source_link: "curl -v -u '***' -H 'X-Requested-With: XMLHttpRequest' 'https://***/public.php/webdav/'"
+  config_link: "curl -v -u '***' -H 'X-Requested-With: XMLHttpRequest' 'https://***/public.php/webdav/'"
+scaling_files:
+  cluster_pw: "{{ autoscaling_home }}/cluster_pw.json"

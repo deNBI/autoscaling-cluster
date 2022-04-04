@@ -1,0 +1,7 @@
+[Unit]
+Description=Autoscaling Service
+
+[Service]
+User=ubuntu
+PIDFile={{ autoscaling_home }}/autoscaling.pid
+ExecStart={{ autoscaling_home }}/{{ autoscaling_env }}/bin/python {{ autoscaling_home }}/autoscaling.py -service

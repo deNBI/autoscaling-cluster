@@ -1,0 +1,44 @@
+- name: Install virtualenv packages
+  apt:
+    name: [ python3-venv ]
+    state: latest
+
+- name: Creates directory
+  file:
+    path: "{{ autoscaling_home }}"
+    state: directory
+  become_user: "{{ autoscaling_user }}"
+
+- name: check if {{ autoscaling_env }}  already installed
+  stat:
+    path: "{{ autoscaling_home }}/{{ autoscaling_env }}"
+  register: virtualenv_installed
+
+- name: create the initial virtualenv
+  ansible.builtin.shell: /usr/bin/python3 -m venv "{{ autoscaling_home }}/{{ autoscaling_env }}"
+  args:
+    executable: /bin/bash
+    creates: "{{ autoscaling_home }}/{{ autoscaling_env }}"
+  become_user: "{{ autoscaling_user }}"
+  when: virtualenv_installed.stat.exists == False
+
+- name: Install pip packages
+  pip:
+    name: [cython,requests,pyyaml,pandas]
+    virtualenv: "{{ autoscaling_home }}/{{ autoscaling_env }}"
+  become_user: "{{ autoscaling_user }}"
+
+- name: 2. check if {{ autoscaling_env }}  now installed
+  stat:
+    path: "{{ autoscaling_home }}/{{ autoscaling_env }}"
+  register: virtualenv_installed
+
+- name: Source autoscaling python environment
+  ansible.builtin.lineinfile:
+    path=/home/{{autoscaling_user}}/.bashrc
+    line="source '{{ autoscaling_home }}/{{ autoscaling_env }}/bin/activate'"
+    regexp="^source '{{ autoscaling_home }}/{{ autoscaling_env }}/bin/activate'"
+    state=present
+    insertafter=EOF
+  become_user: "{{ autoscaling_user }}"
+  when: virtualenv_installed.stat.exists == True

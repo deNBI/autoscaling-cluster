@@ -1,7 +1,16 @@
 - name: Install Slurm packages
   apt:
-    name: [slurm-wlm]
+    name: ["slurm-wlm", "libslurm-dev", "slurmdbd"]
     state: latest
+
+
+# (Re-)start slurmdbd master daemon
+- name: (Re-)start slurmdbd master
+  systemd:
+    name: slurmdbd
+    enabled: True
+    state: restarted
+  when: slurmdb_conf is changed or slurm_conf is changed or slurm_cggroup_conf is changed
 
 # (Re-)start slurmctl master daemon
 - name: (Re-)start slurmctld master
@@ -9,8 +18,7 @@
     name: slurmctld
     enabled: True
     state: restarted
-  when: slurm_conf is changed or slurm_cggroup_conf is changed or SLURM_cgroup_allowed_devices_conf is changed
-
+  when: slurm_conf is changed or slurmdb_conf is changed or slurm_cggroup_conf is changed or SLURM_cgroup_allowed_devices_conf is changed
 
 # (Re-)start slurmd worker daemon
 - name: (Re-)start slurmd worker daemon
@@ -20,7 +28,12 @@
     state: restarted
   when:
     - use_master_as_compute == 'yes'
-    - slurm_conf is changed or slurm_cggroup_conf is changed or SLURM_cgroup_allowed_devices_conf is changed
+    - slurm_conf is changed or slurmdb_conf is changed or slurm_cggroup_conf is changed or SLURM_cgroup_allowed_devices_conf is changed
+
+#- name: add cluster to accounting
+#  ansible.builtin.shell: sacctmgr -i add cluster "{{ scheduler_config.cluster_name }}"
+#  args:
+#    executable: /bin/bash
 
 # copy
 - name: Copy GridEngine compatible layer
@@ -37,3 +50,21 @@
     mode: 0600
     owner: ubuntu
     group: ubuntu
+
+
+- name: sacctmgr show cluster and store in slurm_clusterlist variable
+  command: "sacctmgr -n show cluster {{ scheduler_config.cluster_name }}"
+  register: slurm_clusterlist
+  changed_when: False
+
+- name: add cluster to accounting
+  command: "sacctmgr -i add cluster {{ scheduler_config.cluster_name }}"
+  when: ' scheduler_config.cluster_name|string not in slurm_clusterlist.stdout'
+
+
+- name: restart slurmctld - missing cluster
+  systemd:
+    name: slurmctld
+    enabled: True
+    state: restarted
+  when: ' "127.0.0.1" not in slurm_clusterlist.stdout'

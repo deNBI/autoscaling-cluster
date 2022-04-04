@@ -1,0 +1,38 @@
+- name: check if pyslurm already installed
+  stat:
+    path: "{{ autoscaling_home }}/{{autoscaling_env}}/lib/python3.8/site-packages/pyslurm-19.5.0.0-py3.8-linux-x86_64.egg"
+  register: pyslurm_installed
+
+- name: Git checkout pyslurm
+  ansible.builtin.git:
+    repo: 'https://github.com/PySlurm/pyslurm.git'
+    dest: "{{ autoscaling_home }}/pyslurm"
+    version: 19.05.0
+    force: yes
+    update: yes
+  become_user: "{{ autoscaling_user }}"
+  when: pyslurm_installed.stat.exists == False
+
+- name: change slurmfull to slurm
+  ansible.builtin.shell: sed -i 's/slurmfull/slurm/' "{{ autoscaling_home }}/pyslurm/setup.py"
+  args:
+    executable: /bin/bash
+  run_once: true
+  become_user: "{{ autoscaling_user }}"
+  when: pyslurm_installed.stat.exists == False
+
+- name: pyslurm build
+  ansible.builtin.shell: "cd {{ autoscaling_home }}/pyslurm && {{ autoscaling_home }}/{{autoscaling_env}}/bin/python setup.py build --slurm=/usr/ --slurm-inc=/usr/include/ --slurm-lib=/usr/lib/x86_64-linux-gnu/"
+  args:
+    executable: /bin/bash
+  run_once: true
+  become_user: "{{ autoscaling_user }}"
+  when: pyslurm_installed.stat.exists == False
+
+- name: pyslurm install
+  ansible.builtin.shell: "cd {{ autoscaling_home }}/pyslurm && {{ autoscaling_home }}/{{autoscaling_env}}/bin/python setup.py install && {{ autoscaling_home }}/{{autoscaling_env}}/bin/python setup.py clean"
+  args:
+    executable: /bin/bash
+  run_once: true
+  become_user: "{{ autoscaling_user }}"
+  when: pyslurm_installed.stat.exists == False
