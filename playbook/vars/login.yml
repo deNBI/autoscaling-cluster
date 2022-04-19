@@ -1,4 +1,0 @@
-mode: openstack"{{ virtualenv_application_home }}/bin/python"
-default_user: userName
-ssh_user: ubuntu
-munge_key: a*******************************************************a

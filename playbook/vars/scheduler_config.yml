@@ -10,4 +10,4 @@ scheduler_config:
     PriorityFavorSmall=NO
     PriorityWeightJobSize=100000
     AccountingStorageTRES=cpu,mem,gres/gpu
-    PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
+    PriorityWeightTRES=cpu=1000,mem=20000,gres/gpu=3000

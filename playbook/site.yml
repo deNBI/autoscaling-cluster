@@ -1,22 +1,8 @@
 - hosts: master
   become: 'yes'
   vars_files:
-  - vars/login.yml
-  - vars/instances.yml
-  - vars/common_configuration.yml
   - vars/scheduler_config.yml
   - vars/autoscaling.yml
   roles:
   - common
   - master
-- hosts: workers
-  become: 'yes'
-  vars_files:
-  - vars/login.yml
-  - vars/instances.yml
-  - vars/common_configuration.yml
-  - vars/{{ ansible_default_ipv4.address }}.yml
-  - vars/scheduler_config.yml
-  roles:
-  - common
-  - worker

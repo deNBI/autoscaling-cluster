@@ -7,7 +7,9 @@
   ansible.builtin.git:
     repo: 'https://github.com/PySlurm/pyslurm.git'
     dest: "{{ autoscaling_home }}/pyslurm"
-    version: 19.05.0
+    version: slurm-20.11.8
+    # commit babfb81aa5104457c1ab42c8df5ff4055e676e4a
+    # v20.11.8-1 , 19.05.0
     force: yes
     update: yes
   become_user: "{{ autoscaling_user }}"
