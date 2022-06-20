@@ -25,7 +25,7 @@ paths:
         $ref: '#/components/requestBodies/cluster_scale-up_flavors'
       responses:
         '200':
-          $ref: '#/components/responses/scaling'
+          $ref: '#/components/schemas/password_item'
         '400':
           description: '{"error":"1 additional workers requested, only 0 possible"}'
         '401':
@@ -46,7 +46,7 @@ paths:
         $ref: '#/components/requestBodies/cluster_scale-down'
       responses:
         '200':
-          $ref: '#/components/responses/scaling'
+          $ref: '#/components/schemas/password_item'
         '401':
           description: unauthorized
   /clusters_scaling/{cluster_id}/scale-down/specific/:
@@ -62,7 +62,7 @@ paths:
         $ref: '#/components/requestBodies/cluster_specific'
       responses:
         '200':
-          $ref: '#/components/responses/scaling'
+          $ref: '#/components/schemas/password_item'
         '401':
           description: unauthorized
 
@@ -126,27 +126,27 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/clusterData_scale-up'
+            $ref: '#/components/schemas/cluster-data_scale-up'
     cluster_scale-up_flavors:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/clusterData_scale-up_flavors'
+            $ref: '#/components/schemas/cluster-data_scale-up_flavors'
     cluster_scale-down:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/clusterData_scale-down'
+            $ref: '#/components/schemas/cluster-data_scale-down'
     cluster_specific:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/clusterData_scale-down-specific'
+            $ref: '#/components/schemas/cluster-data_scale-down-specific'
     cluster_info:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/clusterData_info'
+            $ref: '#/components/schemas/cluster-data_info'
 
   responses:
     scaling:
@@ -155,14 +155,14 @@ components:
         application/json:
           schema:
             items:
-              $ref: '#/components/schemas/passwordItem'
+              $ref: '#/components/schemas/password_item'
     flavors:
       description: flavor data
       content:
         application/json:
           schema:
             items:
-              $ref: '#/components/schemas/flavorData'
+              $ref: '#/components/schemas/flavor-data'
 
     worker_info:
       description: receive worker information
@@ -191,57 +191,75 @@ components:
                   ephemerals:
                     type: array
                     example: [ ... ]
+                  ephemeral_disk:
+                    type: integer
+                    example: 150
               version:
                 type: string
-                example: 0.2.0
+                example: 0.3.3
 
   schemas:
-    clusterData_scale-down-specific:
+    cluster-data_scale-down-specific:
       type: object
       properties:
         password:
-          $ref: '#/components/schemas/passwordItem'
+          $ref: '#/components/schemas/password_item'
         worker_batch:
           $ref: '#/components/schemas/worker_hostnames'
-      description: clusterData scale-down specific
+        version:
+          type: string
+          example: 0.3.3
+      description: cluster data scale-down specific
 
-    clusterData_scale-down:
+    cluster-data_scale-down:
       type: object
       properties:
         password:
-          $ref: '#/components/schemas/passwordItem'
+          $ref: '#/components/schemas/password_item'
         worker_batch:
           $ref: '#/components/schemas/worker_batch'
-      description: clusterData scale-down
+        version:
+          type: string
+          example: 0.3.3
+      description: cluster data scale-down
 
-    clusterData_scale-up:
+    cluster-data_scale-up:
       type: object
       properties:
         password:
-          $ref: '#/components/schemas/passwordItem'
+          $ref: '#/components/schemas/password_item'
         worker_batch:
           $ref: '#/components/schemas/worker_batches'
-      description: clusterData scale-up
+        version:
+          type: string
+          example: 0.3.3
+      description: cluster data scale-up
     
-    clusterData_scale-up_flavors:
+    cluster-data_scale-up_flavors:
       type: object
       properties:
         password:
-          $ref: '#/components/schemas/passwordItem'
+          $ref: '#/components/schemas/password_item'
         worker_flavor_name:
           type: string
           example: de.NBI tiny
         upscale_count:
           type: integer
           example: 1
-      description: clusterData scale-up specific flavors
+        version:
+          type: string
+          example: 0.3.3
+      description: cluster data scale-up specific flavors
 
-    clusterData_info:
+    cluster-data_info:
       type: object
       properties:
         password:
-          $ref: '#/components/schemas/passwordItem'
-      description: clusterData receive worker status
+          $ref: '#/components/schemas/password_item'
+        version:
+          type: string
+          example: 0.3.3
+      description: cluster data receive worker status
 
     worker_hostnames:
       type: array
@@ -284,7 +302,7 @@ components:
           type: string
           example: de.NBI tiny
 
-    passwordItem:
+    password_item:
       type: object
       properties:
         name:
@@ -294,7 +312,7 @@ components:
       example: '{"password":"new_password"}'
       description: receive new cluster password as json object
 
-    flavorData:
+    flavor-data:
       type: object
       properties:
         available_count:
