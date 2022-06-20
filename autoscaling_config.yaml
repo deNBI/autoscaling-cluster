@@ -1,158 +1,397 @@
 scaling:
-  portal:
-    portal_link: https://cloud.denbi.de
+  portal_link: https://cloud.denbi.de
+  # portal_link: https://portal-dev.denbi.de
+  scheduler: slurm
+  default_mode: default
+  automatic_update: True              # if possible, update autoscaling program on version mismatch
+  database_reset: True                # reset database on configuration change
 
   mode:
     default:
+      service_frequency: 120          # wait time in seconds after cycle
+
+      # ---------- limits ----------
+      limit_memory: 0                 # memory limit in TB, deactivate with 0
+      limit_worker_starts: 0          # worker start limit per flavor and cycle, deactivate with 0
+      limit_workers: 0                # limit the number of active workers, deactivate with 0
+
       # ---------- scale force ----------
-      scale_force: 0.6                # higher - higher scaling (0-1)
+      scale_force: 0.6                # higher value - higher scaling (0-1) initial scale force
 
       # ---------- scale wait ----------
-      scale_delay_wait: 60            # wait for scaling and recheck values
-      scale_down_freq: 5              # wait time before scale down since last job start
+      scale_delay: 60                  # wait time in seconds during scaling and recheck values
+      scale_frequency: 240             # wait time in seconds before scale down idle workers without pending jobs
+      # since last job start, deactivate with 0
 
       # ---------- scale force worker ----------
-      scale_force_worker: True        # reduce starting new workers based on the number of currently existing workers
-      scale_force_worker_weight: 0.02 # reduce chance of new workers by current worker count
+      # reduce starting new workers based on the number of current existing workers
+      worker_weight: 0.05             # deactivate with 0
 
       # ---------- job time ----------
-      job_time_long: 600
-      job_time_short: 160
-      job_time_range_automatic: True
+      job_time_long: 1200             # set a maximum job time
+      job_time_short: 1               # set a minimum job time
+      job_time_range_automatic: False # automatic job range, extend short and long values from job history
+      # DELETE dictionary on change
+      job_time_flavor: True           # if jobs are not in history, use the average job time from flavor data
 
       # ---------- watch for similar jobs ----------
-      job_match_value: 0.9            # include only jobs in calculation by ths name match value (SequenceMatcher)
-      job_match_similar: 0.4          # lower value - tend to start new workers,
-                                      # but indeed, a similar job took comparatively little time
-      job_match_search: True
-      scale_force_job_weight: 0.03    # used by similar job search, increases chance of new worker by job pending count
+      job_match_value: 0.95           # compare jobs from history by match value (SequenceMatcher),
+      # job name must match at least to 0.95 = 95%
+      job_match_similar: 0.48         # lower value (0-1) - tend to start new workers, for jobs with a short runtime
+
+      job_match_remove_numbers: True        # numbers not included in the comparison
+      job_match_remove_num_brackets: True   # numbers in brackets not included in the comparison
+      job_match_remove_pattern: ''          # remove string from job names, ex 'wPipeline_'
+      job_match_remove_text_within_parentheses: False # remove any string within parentheses
+
+      job_match_search: True          # True = active, search for similar jobs in history
 
       # ---------- flavor selection ----------
-      flavor_fix: False               # if deactivated, use the default flavor
-      flavor_default: "de.NBI large + ephemeral"
-      flavor_ephemeral: True          # only use ephemeral flavors
+      flavor_fix: False               # if activated, use the default flavor
+      flavor_cut: 0                   # 0.9 - cut 10% of the lower flavors, or remove a number of flavors
+      flavor_default: "de.NBI large + ephemeral" # select maximum required flavor!
+      flavor_ephemeral: True          # only use ephemeral flavors by automatic scaling
+      tmp_disk_check: False           # if active, flavor_ephemeral ignored - jobs NEED tmp_disk value!
 
-      # ---------- prediction by daytime ----------
-      prediction_force: False
-      # weight for cpu memory and minutes
-      prediction_balance_cpu: 0.9
-      prediction_balance_mem: 1.1
-      prediction_balance_min: 1
+      # examples:
+      # tmp_disk_check False; flavor_ephemeral False: only flavors without ephemeral, DO NOT USE THIS COMBINATION!
+      # tmp_disk_check False; flavor_ephemeral True: only flavors with ephemeral
+      # tmp_disk_check True; flavor_ephemeral False: automatic ephemeral flavor selection
+      # tmp_disk_check True; flavor_ephemeral True: automatic ephemeral flavor selection
 
-      # ---------- job priority ----------
-      sort_jobs_by_memory: True       # sort jobs by memory as secondary condition, first priority (scheduler)
-                                      # only autoscaling considers this order to start new workers
-                                      # true, high memory workers first
-      # ---------- node selection ----------
-      # prefer_high_nodes and drain_high_nodes are incompatible, one mode option should be False!
-      prefer_high_nodes: False   # start jobs on high nodes
-      drain_high_nodes: False   # set high nodes to drain, if lower nodes possible for pending jobs
+      # exclude gpu flavors
+      flavor_gpu_remove: True         # remove GPU flavors - 'Graphics Processing Unit'
+      flavor_gpu_only: False          # only GPU flavors - 'Graphics Processing Unit'
+      # incompatible with flavor_gpu_remove=True
+
+      flavor_depth: -3        # if no worker generated for next pending jobs with next flavor
+      # Pre-Launch the next x workers by flavor, only useful with a job priority with high resources first
+      # multiple flavors in one iteration may break configured limits and job order! but speed up the process
+      #    0: single flavor, start only workers for next jobs in queue
+      #   -1: start multiple flavors in one iteration
+      #   -2: no flavor data separation, select the highest flavor, similar flavor data not compatible
+      #   -3: single flavor in one iteration, but search all flavor levels,
+      #       start the first (highest) flavor with generated scale up data
+      #    x (positive value): single flavor in one iteration, search for new workers by the next x flavors
+
+      # ---------- worker selection ----------
+      # prefer_high_flavors and step_over_flavor is incompatible with drain_high_nodes
+      prefer_high_flavors: False      # start jobs on high nodes
+      step_over_flavor: False         # if suitable flavor not available, start next higher flavor
+      drain_high_nodes: False         # set high nodes to drain, if nodes with lower flavors possible for pending jobs
 
       # ---------- slurm priority settings example ----------
-      scheduler_settings: |        # do not change setting names - delete lower lines for default
+      scheduler_settings: |           #  updated if supported by ansible playbook
         PriorityType=priority/multifactor
-        PriorityFlags=MAX_TRES
         PriorityFavorSmall=NO
         PriorityWeightJobSize=100000
         AccountingStorageTRES=cpu,mem,gres/gpu
         PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
 
     adoptive:
-      sort_jobs_by_memory: True
-      scale_delay_wait: 60
+      service_frequency: 120
 
+      # ---------- limits ----------
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
+
+      # ---------- scale force ----------
       scale_force: 0.6
-      scale_force_worker: True
-      scale_force_worker_weight: 0.02
-      scale_force_job_weight: 0.05
 
-      job_time_long: 600
-      job_time_short: 160
+      # ---------- scale wait ----------
+      scale_delay: 60
+      scale_frequency: 0
+
+      # ---------- scale force worker ----------
+      worker_weight: 0.05
+
+      # ---------- job time ----------
+      job_time_long: 1200
+      job_time_short: 1
       job_time_range_automatic: True
+      job_time_flavor: True
 
-      job_match_value: 0.9
-      job_match_similar: 0.4
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.95
+      job_match_similar: 0.48
+
+      job_match_remove_numbers: True
+      job_match_remove_num_brackets: True
+      job_match_remove_pattern: ''
+      job_match_remove_text_within_parentheses: False
+
       job_match_search: True
 
+      # ---------- flavor selection ----------
       flavor_fix: False
+      flavor_cut: 0
       flavor_default: "de.NBI large + ephemeral"
       flavor_ephemeral: True
+      tmp_disk_check: False
 
-      scale_down_freq: 5
+      # exclude gpu flavors
+      flavor_gpu_remove: True
+      flavor_gpu_only: False
 
-      prediction_force: True
-      prediction_balance_cpu: 0.9
-      prediction_balance_mem: 1.1
-      prediction_balance_min: 1
+      flavor_depth: -1
 
-      prefer_high_nodes: False
+      # ---------- worker selection ----------
+      prefer_high_flavors: False
+      step_over_flavor: False
       drain_high_nodes: True
 
-      scheduler_settings:
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |           #  updated if supported by ansible playbook
+        PriorityType=priority/multifactor
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
 
     max:
-      sort_jobs_by_memory: True
-      scale_delay_wait: 60
+      # calculate high flavors for all jobs
+      service_frequency: 120
 
-      scale_force: 0.8
-      scale_force_worker: False
-      scale_force_worker_weight: 0.02
-      scale_force_job_weight: 0.05
+      # ---------- limits ----------
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
 
-      job_time_long: 600
-      job_time_short: 160
+      # ---------- scale force ----------
+      scale_force: 0.6
+
+      # ---------- scale wait ----------
+      scale_delay: 60
+      scale_frequency: 0
+
+      # ---------- scale force worker ----------
+      worker_weight: 0.00
+
+      # ---------- job time ----------
+      job_time_long: 1200
+      job_time_short: 1
       job_time_range_automatic: False
+      job_time_flavor: True
 
-      job_match_value: 0.9
-      job_match_similar: 0.4
-      job_match_search: False
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.95
+      job_match_similar: 0.2
 
+      job_match_remove_numbers: True
+      job_match_remove_num_brackets: True
+      job_match_remove_pattern: ''
+      job_match_remove_text_within_parentheses: False
+
+      job_match_search: True
+
+      # ---------- flavor selection ----------
       flavor_fix: False
+      flavor_cut: 0
       flavor_default: "de.NBI large + ephemeral"
       flavor_ephemeral: True
+      tmp_disk_check: False
 
-      scale_down_freq: 5
+      # exclude gpu flavors
+      flavor_gpu_remove: True
+      flavor_gpu_only: False
 
-      prediction_force: True
-      prediction_balance_cpu: 0.9
-      prediction_balance_mem: 1.1
-      prediction_balance_min: 1
+      flavor_depth: -2
 
-      prefer_high_nodes: True
+      # ---------- worker selection ----------
+      prefer_high_flavors: False
+      step_over_flavor: False
       drain_high_nodes: False
 
-      scheduler_settings: ''
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |           #  updated if supported by ansible playbook
+        PriorityType=priority/multifactor
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
 
+    high:
+      # calculate a high flavor as a replacement for every depth
+      service_frequency: 120
+
+      # ---------- limits ----------
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
+
+      # ---------- scale force ----------
+      scale_force: 0.6
+
+      # ---------- scale wait ----------
+      scale_delay: 60
+      scale_frequency: 60
+
+      # ---------- scale force worker ----------
+      worker_weight: 0.00
+
+      # ---------- job time ----------
+      job_time_long: 1200
+      job_time_short: 1
+      job_time_range_automatic: False
+      job_time_flavor: False
+
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.95
+      job_match_similar: 0.2
+
+      job_match_remove_numbers: True
+      job_match_remove_num_brackets: True
+      job_match_remove_pattern: ''
+      job_match_remove_text_within_parentheses: False
+
+      job_match_search: True
+
+      # ---------- flavor selection ----------
+      flavor_fix: False
+      flavor_cut: 0
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: True
+      tmp_disk_check: False
+
+      # exclude gpu flavors
+      flavor_gpu_remove: True
+      flavor_gpu_only: False
+
+      flavor_depth: -3
+
+      # ---------- worker selection ----------
+      prefer_high_flavors: True
+      step_over_flavor: False
+      drain_high_nodes: False
+
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |           #  updated if supported by ansible playbook
+        PriorityType=priority/multifactor
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
 
     static:
-      sort_jobs_by_memory: False
-      scale_delay_wait: 60
+      # without similar job data, multiple flavor start
+      service_frequency: 120
 
-      scale_force: 0.8
-      scale_force_worker: False
-      scale_force_worker_weight: 0.02
-      scale_force_job_weight: 0.05
+      # ---------- limits ----------
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
 
-      job_time_long: 600
-      job_time_short: 160
+      # ---------- scale force ----------
+      scale_force: 0.6
+
+      # ---------- scale wait ----------
+      scale_delay: 60
+      scale_frequency: 60
+
+      # ---------- scale force worker ----------
+      worker_weight: 0.05
+
+      # ---------- job time ----------
+      job_time_long: 1200
+      job_time_short: 1
       job_time_range_automatic: False
+      job_time_flavor: False
 
-      job_match_value: 0.9
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.95
       job_match_similar: 0.4
+
+      job_match_remove_numbers: True
+      job_match_remove_num_brackets: True
+      job_match_remove_pattern: ''
+      job_match_remove_text_within_parentheses: False
+
       job_match_search: False
 
-      flavor_fix: True
+      # ---------- flavor selection ----------
+      flavor_fix: False
+      flavor_cut: 0
       flavor_default: "de.NBI large + ephemeral"
-      flavor_ephemeral: False
+      flavor_ephemeral: True
+      tmp_disk_check: False
 
-      scale_down_freq: 5
+      # exclude gpu flavors
+      flavor_gpu_remove: True
+      flavor_gpu_only: False
 
-      prediction_force: False
-      prediction_balance_cpu: 0.9
-      prediction_balance_mem: 1.1
-      prediction_balance_min: 1
+      flavor_depth: -1
 
-      prefer_high_nodes: False
+      # ---------- worker selection ----------
+      prefer_high_flavors: False
+      step_over_flavor: False
       drain_high_nodes: False
 
-      scheduler_settings: ''
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |           #  updated if supported by ansible playbook
+        PriorityType=priority/multifactor
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
+
+    min:
+      service_frequency: 120
+
+      # ---------- limits ----------
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
+
+      # ---------- scale force ----------
+      scale_force: 0.6
+
+      # ---------- scale wait ----------
+      scale_delay: 60
+      scale_frequency: 60
+
+      # ---------- scale force worker ----------
+      worker_weight: 0.1
+
+      # ---------- job time ----------
+      job_time_long: 1200
+      job_time_short: 1
+      job_time_range_automatic: False
+      job_time_flavor: True
+
+      # ---------- watch for similar jobs ----------
+      job_match_value: 0.95
+      job_match_similar: 0.6
+
+      job_match_remove_numbers: True
+      job_match_remove_num_brackets: True
+      job_match_remove_pattern: ''
+      job_match_remove_text_within_parentheses: False
+
+      job_match_search: True
+
+      # ---------- flavor selection ----------
+      flavor_fix: False
+      flavor_cut: 0
+      flavor_default: "de.NBI large + ephemeral"
+      flavor_ephemeral: True
+      tmp_disk_check: False
+
+      # exclude gpu flavors
+      flavor_gpu_remove: True
+      flavor_gpu_only: False
+
+      flavor_depth: 0
+
+      # ---------- worker selection ----------
+      prefer_high_flavors: False
+      step_over_flavor: False
+      drain_high_nodes: True
+
+      # ---------- slurm priority settings example ----------
+      scheduler_settings: |           #  updated if supported by ansible playbook
+        PriorityType=priority/multifactor
+        PriorityFavorSmall=NO
+        PriorityWeightJobSize=100000
+        AccountingStorageTRES=cpu,mem,gres/gpu
+        PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
