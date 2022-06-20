@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import difflib
-import urllib.request
 import os
 import time
 import sys
@@ -115,8 +114,6 @@ class Rescale(enum.Enum):
 
 
 class SlurmInterface:
-    # one python file rule ... no separation possible
-
     def __init__(self):
         pass
 
@@ -191,14 +188,8 @@ class SlurmInterface:
                 for i, key in enumerate(header_cols):
                     d[key] = parts[i]
                 entries.append(d)
-            # if len(parts) != len(header_cols):
-            #     error_lines.append((len(parts), line, parts))
-            # else:
-            #     for i, key in enumerate(header_cols):
-            #         d[key] = parts[i]
-            #     entries.append(d)
+
         # print(json.dumps(entries, indent = 2))
-        # print(json.dumps(error_lines, indent = 2))
         return entries
 
     def node_data_live(self):
@@ -236,7 +227,6 @@ class SlurmInterface:
         job_live_dict_pending = {}
         job_live_dict_running = {}
         for i in squeue_json:
-            # print(i)
             mem = re.split('(\d+)', i['MIN_MEMORY'])
             disk = re.split('(\d+)', i['MIN_TMP_DISK'])
             # convert memory to iB, according to slurm db
@@ -301,12 +291,9 @@ class SlurmInterface:
         for line in iter(output.stdout.readline, b''):
             words = line.rstrip().decode().replace('"', '')
             x = words.split()
-            # logger.debug('add_jobs_tmp_disk x %s', x)
             match = re.match(r"([0-9]+)([A-Z]+)", x[2], re.I)
-            # logger.debug('match %s', match)
             if match:
                 items = match.groups()
-                # logger.debug('add_jobs_tmp_disk %s 0: %s, len(items) %s', items, items[0], len(items))
                 if len(items) == 2:
                     tmp_disk = self.memory_size(items[0], items[1])
                 else:
@@ -964,7 +951,6 @@ def __csv_log(jobs_cnt_running, job_cnt_pending, worker_cnt, worker_cnt_use, wor
         worker_change,
         reason, credit_]
 
-    # test if exit and not empty
     if not os.path.exists(LOG_CSV) or os.path.getsize(LOG_CSV) == 0:
         logger.debug("missing log file, create file and header")
         header = [
@@ -986,7 +972,6 @@ def __csv_writer(csv_file, log_data):
     :param log_data: write this new line
     :return:
     """
-    # logger.debug("csv_writer")
     with open(csv_file, 'a', newline='') as csvfile:
         fw = csv.writer(csvfile, delimiter=',')
         fw.writerow(log_data)
@@ -1002,9 +987,6 @@ def __read_yaml_file(file_path):
     try:
         with open(file_path, "r") as stream:
             yaml_data = yaml.safe_load(stream)
-
-            # logger.debug(pformat(yaml_data))
-
         return yaml_data
     except yaml.YAMLError as exc:
         logger.error(exc)
@@ -1240,7 +1222,6 @@ def __sort_job_priority(jobs_dict):
 
     # sort jobs by memory as secondary condition, first priority (scheduler)
     priority_job_list = sorted(jobs_dict.items(), key=lambda k: (k[1]['priority'], k[1]['req_mem']), reverse=True)
-    # priority_job_list = sorted(jobs_dict.items(), key=lambda k: k[1]['priority'], reverse=True)
 
     return priority_job_list
 
@@ -1300,8 +1281,6 @@ def receive_node_data_test():
                     logger.error("workers are in DOWN state")
                 else:
                     pass
-                    # logger.info("worker in %s state", value['state'])
-            # elif 'master' in key:
             else:
                 del node_dict[key]
         logger.info("nodes: I found %d worker - %d allocated, %d drain, drain+idle %s", worker_count, worker_in_use,
@@ -1368,8 +1347,6 @@ def receive_node_data():
                     logger.error("workers are in DOWN state")
                 else:
                     pass
-                    # logger.info("worker in %s state", value['state'])
-            # elif 'master' in key:
             else:
                 del node_dict[key]
         logger.info("nodes: I found %d worker - %d allocated, %d drain, drain+idle %s", worker_count, worker_in_use,
@@ -1890,7 +1867,6 @@ def __generate_downscale_list(worker_data, count, jobs_dict):
             # check for broken workers first
             if (NODE_ALLOCATED not in value['state']) and (NODE_MIX not in value['state']) and (
                     NODE_IDLE not in value['state']) and (NODE_DRAIN not in value['state']):
-                # should never be reached, exit on DRAIN oder DOWN state @fetch_node_data @check_workers
                 logger.error("worker is in unknown state: key %s  value %s", key, value['state'])
                 idle_workers.append(key)
                 scheduler_interface.set_node_to_drain(key)
@@ -1985,15 +1961,11 @@ def __similar_job_history(jobs_dict, job_pending_name, job_time_max, job_time_mi
     logger.debug("----- __similar_job_history, job_pending_name : %s -----", job_pending_name)
     counter_tmp = 0
     if jobs_dict:
-
         for key, value in jobs_dict.items():
-
             # pprint(value)
             if value['state'] == JOB_FINISHED:
                 job_name = clear_job_names(value['jobname'])
                 diff_match = difflib.SequenceMatcher(None, job_name, job_pending_name).ratio()
-                # logger.debug("SequenceMatcher found a similar job with %s, compare %s %s", diff_match,
-                #              value['jobname'], job_pending_name)
                 if diff_match >= conf_mode['job_match_value']:
                     # logger.debug("----- __similar_job_history, job %s match : %s -----", job_name, diff_match)
                     job_count += 1
@@ -2022,11 +1994,8 @@ def __current_worker_capable_(job_, worker_json):
     """
 
     found_match = False
-    # logger.debug("j_key %s j_value %s",j_key,j_value)
     for w_key, w_value in worker_json.items():
-        # logger.debug("w_key %s w_value %s",w_key,w_value)
         if 'worker' in w_key:
-            # logger.debug("j_value['req_mem'] %s w_mem_tmp %s",type(j_value['req_mem']),type(w_mem_tmp))
             if __worker_match_to_job(job_, w_value):
                 found_match = True
                 logger.debug("capable y - job mem %s worker mem %s, jcpu %s wcpu %s", job_['req_mem'],
@@ -2105,8 +2074,6 @@ def __current_workers_capable(jobs_pending_dict, worker_json):
                         logger.debug("%s capable y - job %s mem %s worker mem %s, jcpu %s wcpu %s", w_key, j_key,
                                      j_value['req_mem'], w_value['real_memory'], j_value['req_cpus'], w_value['cpus'])
                     else:
-                        #     logger.debug("capable n - job mem %s worker mem %s, jcpu %s wcpu %s", j_value['req_mem'],
-                        #                  w_mem_tmp, j_value['req_cpus'], w_value['cpus'])
                         logger.debug("%s capable n - job %s mem %s worker mem %s, jcpu %s wcpu %s", w_key, j_key,
                                      j_value['req_mem'], w_value['real_memory'], j_value['req_cpus'], w_value['cpus'])
             if not found_match:
@@ -2646,7 +2613,7 @@ def __division(x, y):
 
 def __multiply(x, y):
     """
-    Calculate a division, if divided by zero, return zero.
+    Multiply and round the output value
     :param x: number
     :param y: divisor
     :return: result
@@ -3100,11 +3067,11 @@ def __calc_previous_job_time(jobs_dict, flavor_next, flavor_data):
     :return: normalized value from 0 to 1
     """
     jobs_dict_flavor = []
+    job_time_min = conf_mode['job_time_short']
+    job_time_max = conf_mode['job_time_long']
+    job_time_sum = 0
+    counter = 0
     if jobs_dict:
-        job_time_min = conf_mode['job_time_short']
-        job_time_max = conf_mode['job_time_long']
-        job_time_sum = 0
-        counter = 0
         for key, value in jobs_dict.items():
             if value['state'] == JOB_FINISHED:
                 fv_ = __translate_cpu_mem_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
@@ -3115,10 +3082,8 @@ def __calc_previous_job_time(jobs_dict, flavor_next, flavor_data):
                     continue
                 if flavor_next['cnt'] == fv_['cnt'] and value['elapsed'] >= 0:
 
-                    # if value['elapsed'] >= 0: # 3 finished jobs 10
                     jobs_dict_flavor.append((key, value))
                     counter += 1
-                    # logger.debug("%s   %s", value['state'], value['elapsed'])
                     job_time_sum += value['elapsed']
                     if job_time_min == 1:
                         job_time_min = value['elapsed']
@@ -3131,12 +3096,11 @@ def __calc_previous_job_time(jobs_dict, flavor_next, flavor_data):
                         job_time_max = value['elapsed']
 
         logger.debug("job_time_max %s job_time_min %s", job_time_max, job_time_min)
-        # logger.debug("JOB_TIME_RANGE_AUTOMATIC %s", conf_mode['job_time_range_automatic'])
         jobs_dict_flavor = dict(jobs_dict_flavor)
         return __calc_job_time_norm(job_time_sum, counter, job_time_max, job_time_min), \
                job_time_max, job_time_min, jobs_dict_flavor, counter, job_time_sum
     logger.info("No job found")
-    return None
+    return None, job_time_max, job_time_min, None, counter, job_time_sum
 
 
 def __scale_down_job_frequency(jobs_pending):
@@ -3151,20 +3115,15 @@ def __scale_down_job_frequency(jobs_pending):
         True : if scale down allowed
         False: if scale down denied
     """
-    wait_time = int(conf_mode['scale_frequency']/4)
+    wait_time = int(conf_mode['scale_frequency'] / 4)
     if jobs_pending == 0 and wait_time > 0 and not conf_mode['drain_high_nodes']:
         # if pending jobs + scale-down initiated -> worker not suitable
         time_now = str((datetime.datetime.now().replace(microsecond=0).timestamp())).split('.')[0]
         jobs_dict_rev = sorted(
             list(receive_completed_job_data(1).items()), key=lambda k: (k[1]['start'], k[1]['req_mem']), reverse=True)
-        # dict(reversed(list(receive_completed_job_data(1).items()))).items()
-        # for key, value in jobs_dict.items(): # TODO reversed(jobs_dict.items()) python 3.4 problem
         for key, value in jobs_dict_rev:
             # logger.debug(pformat(value))
-
             if value['state'] == JOB_FINISHED:  # if last job is completed
-                # logger.debug("job end time: %s , %s", datetime.datetime.fromtimestamp(value['end']), value['end'])
-                # elapsed_time = float(time_now) - float(value['end'])
                 elapsed_time = float(time_now) - float(value['start'])
                 logger.debug("elapsed_time: %s wait_time %s time_now %s job_start %s", elapsed_time, wait_time,
                              time_now,
@@ -3186,7 +3145,7 @@ def __multiscale_scale_down(scale_state, worker_json, worker_down_cnt, jobs_pend
     :return: new scale state
     """
 
-    if __scale_down_job_frequency(len(jobs_pending_dict)): # TODO
+    if __scale_down_job_frequency(len(jobs_pending_dict)):  # TODO
         if scale_state == ScaleState.DELAY:
             scale_state = ScaleState.DOWN
             time.sleep(conf_mode['scale_delay'])  # wait and recheck slurm values after DELAY
@@ -3843,8 +3802,6 @@ def __settings_check(settings_list, settings_received):
         if i not in dict_keys:
             logger.error("setting %s is missing", i)
             values_available = False
-        # else:
-        #     logger.debug("setting value %s is available", i)
     return values_available
 
 
@@ -4057,6 +4014,7 @@ def create_database_():
     time_start = int(__get_time()) - DATA_LONG_TIME * 86400
 
     dict_db = {'VERSION': VERSION, 'config_hash': config_hash, 'update_time': time_start, 'flavor_name': {}}
+    __save_file(DATABASE_FILE, dict_db)
     return dict_db
 
 
@@ -4121,17 +4079,6 @@ def update_database():
                                                'fv_time_norm_static': NORM_LOW,
                                                'similar_data': {}}})
 
-            # logger.debug("old    flavor data job_time_min %s, job_time_max %s "
-            #              "job_time_cnt %s, job_time_sum %s",
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_min'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_max'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_cnt'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_sum']
-            #              )
-
-            # flavor related values
-            # respect job time borders
-            # if conf_mode['job_time_range_automatic']:
             if value['elapsed'] < conf_mode['job_time_short'] and \
                     dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_min'] > value['elapsed']:
                 dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_min'] = value['elapsed']
@@ -4141,13 +4088,7 @@ def update_database():
             # update flavor related data
             dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_cnt'] += 1
             dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_sum'] += value['elapsed']
-            # logger.debug("update flavor data job_time_min %s, job_time_max %s "
-            #              "job_time_cnt %s, job_time_sum %s",
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_min'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_max'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_cnt'],
-            #              dict_db['flavor_name'][v_tmp['flavor']['name']]['fv_time_sum']
-            #              )
+
             # update job related similar_data
             for current_job in dict_db['flavor_name'][v_tmp['flavor']['name']]['similar_data']:
                 # logger.debug("update database job %s for %s flavor ...", current_job, v_tmp['flavor']['name'])
