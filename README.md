@@ -1,173 +1,73 @@
-## autoscaling cluster
+## Autoscaling usage and settings 
 
-### autoscaling install
+### install
+* select the ubuntu 20.04 cluster image in `simpleVM` 
+* download `autoscaling.py` and `autoscaling_config.yaml` to `${HOME}/autoscaling/`
+* define a new cluster password with `autoscaling -p`
 
-#### required packages
-##### ubuntu 20.04
-```console
-apt install -y mariadb-server slurmdbd cython3 libslurm-dev
+
+### usage
+* use `autoscaling -h` for options
 ```
-##### ubuntu 18.04
-```console
-apt install -y mariadb-server slurmdbd cython3 libslurm-dev libslurmdb-dev
+-v          -version                        print the current version number
+-h          -help                           print this help information
+-fv         -flavors                        print available flavors
+-m          -mode               mode        scaling with a high adaptation
+-m          -mode               ...         select mode name from yaml file
+-p          -password                       set cluster password
+-rsc        -rescale                        run scaling with ansible playbook 
+-s          -service                        run as service (mode: default)
+-s          -service             mode       run as service
+-sdc        -scaledownchoice                scale down (worker id) - interactive mode
+-sdb        -scaledownbatch                 scale down (batch id)  - interactive mode
+-suc        -scaleupchoice                  scale up - interactive mode
+-sdi        -scaledownidle                  scale down all workers (idle + worker check)
+-csd        -clustershutdown                delete all workers from cluster (api)
+            -reset                          re-download autoscaling and reset configuration
+_                                           no argument - mode: default (yaml config)
 ```
+#### 
 
-#### cluster password
-The cluster password should be in the same folder as the autoscaling program.
+### start as systemd service
+* `sudo service autoscaling start`
+* `sudo service autoscaling stop`
 
-`cluster_pw.json`
-```console
-{"password":"CLUSTER_PASSWORD"}`
-```
-#### start as service
-
-##### systemd
-`/etc/systemd/system/autoscaling.service`
-```console
-[Unit]
-Description=Autoscaling Service
-
-[Service]
-User=ubuntu
-PIDFile=/home/ubuntu/autoscaling/autoscaling.pid
-ExecStart=/usr/bin/python3 /home/ubuntu/autoscaling/autoscaling.py -service
-```
-
-### slurm configuration
-
-#### slurm accounting storage
-
-Add the configuration to slurm.conf
-
-* `/etc/slurm-llnl/slurm.conf`
-* `${HOME}/playbook/roles/common/templates/slurm/slurm.conf`
-
-```console
-ClusterName=bibigrid
-AccountingStorageType=accounting_storage/slurmdbd
-AccountingStoreJobComment=YES
-
-```
-###### priority basic (default)
-```console
-PriorityType=priority/basic
-```
-###### priority sorted by resources
-```console
-PriorityType=priority/multifactor
-PriorityFlags=MAX_TRES
-PriorityWeightJobSize=100000
-AccountingStorageTRES=cpu,mem,gres/gpu
-PriorityFavorSmall=NO 
-PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
-```
-
-##### slurmdbd configuration 20.04
-
-`/etc/slurm-llnl/slurmdbd.conf`
-
-```console
-AuthType=auth/munge
-AuthInfo=/var/run/munge/munge.socket.2
-DbdHost=localhost
-DebugLevel=info
-StorageHost=localhost
-StorageLoc=slurm_acct_db
-StoragePass=YOUR_DB_PASSWORD
-StorageType=accounting_storage/mysql
-StorageUser=slurm
-LogFile=/var/log/slurm-llnl/slurmdbd.log
-PidFile=/run/slurmdbd.pid
-SlurmUser=slurm
-```
-##### slurmdbd configuration 18.04
-
-```console
-AuthType=auth/munge
-AuthInfo=/var/run/munge/munge.socket.2
-DbdHost=localhost
-DebugLevel=3
-StorageHost=localhost
-StorageLoc=slurm_acct_db
-StoragePass=YOUR_DB_PASSWORD
-StorageType=accounting_storage/mysql
-StorageUser=slurm
-LogFile=/var/log/slurm-llnl/slurmdbd.log
-PidFile=/var/run/slurm-llnl/slurmdbd.pid
-SlurmUser=slurm
-```
-
-##### setup mysql database
-
-```console
-sudo mysql -u $user -p"$passsword" -Bse "create user 'slurm'@'localhost' identified by 'YOUR_DB_PASSWORD';"
-sudo mysql -u $user -p"$passsword" -Bse "grant all on slurm_acct_db.* TO 'slurm'@'localhost';"
-```
-
-##### restart services and add cluster
-
-```console
-sudo systemctl restart slurmd.service
-sudo systemctl restart slurmdbd.service
-sudo systemctl restart mysql  
-sudo sacctmgr add cluster bibigrid
-sudo systemctl restart slurmctld.service
-```
-
-### pyslurm
-
-#### pyslurm @ ubuntu 20.04
-
-##### install
-
-```console
-INSTALLPATH="/usr/src/"
-SLURM_VER=19.05.0
-
-cd ${INSTALLPATH} && \
- git clone https://github.com/PySlurm/pyslurm.git && \
- cd pyslurm && \
- git checkout remotes/origin/$SLURM_VER  && \
- sed -i 's/slurmfull/slurm/' setup.py  && \
- python3 setup.py build --slurm=/usr/ --slurm-inc=/usr/include/ --slurm-lib=/usr/lib/x86_64-linux-gnu/  && \
- python3 setup.py install && \
- python3 setup.py clean
-```
-
-#### pyslurm @ ubuntu 18.04
-
-##### install
-
-```console
-INSTALLPATH="/usr/src/"
-SLURM_VER=17.11.0
-
-cd ${INSTALLPATH} && \
- git clone https://github.com/PySlurm/pyslurm.git && \
- cd pyslurm && \
- git checkout remotes/origin/$SLURM_VER  && \
- ln -s /usr/include/slurm-wlm /usr/include/slurm  && \
- python3 setup.py build --slurm=/usr/ --slurm-inc=/usr/include/ --slurm-lib=/usr/lib/x86_64-linux-gnu/  && \
- python3 setup.py install && \
- python3 setup.py clean
-```
-
-### dummy worker config
-Make Slurm think the resources are available, we're adding a fake worker with the max resources available.
-
-#### slurm template
-`${HOME}/playbook/roles/common/templates/slurm/slurm.conf`
-```console
-# NODE CONFIGURATIONS
-NodeName=bibigrid-worker-autoscaling_dummy SocketsPerBoard=28 CoresPerSocket=1 RealMemory=60000
-```
-```console
-# PARTITION CONFIGURATIONS
-PartitionName=debug Nodes={% if use_master_as_compute == 'yes' %}{{master.hostname}},{%endif%}{{sl|join(",")}},bibigrid-worker-autoscaling_dummy default=YES
-```
-
-#### setup hostname
-`/etc/hosts`
-```console
-0.0.0.4 bibigrid-worker-autoscaling_dummy
-```
+### configuration
+* config parameters are located at `${HOME}/autoscaling/autoscaling_config.yaml`
+    * modes can be edited and defined
+    * the default mode is defined as `default`
+* parameters
+  * limits
+    * `limit_memory`: memory limit in TB
+    * `limit_worker_starts`: worker start limit per flavor and cycle
+    * `limit_workers`: limit the number of active workers
+  * scaling values without job history
+    * `scale_force`: initial scale force value, larger results in a higher maximum scale up value
+    * `scale_frequency`: wait time in seconds before scale down idle workers without pending jobs
+    * `worker_weight`: reduce starting new workers based on the number of current existing workers over the `scale_force`
+  * scaling values for job history
+    * `job_match_search`: True = active, search for similar jobs in history
+    * `job_time_flavor`: if jobs are not in history, use the average job time from flavor data
+    * `job_match_similar`: with a lower value (range 0-1), tend to start more new workers for jobs with a short runtime
+    * job name modification:
+      * `job_match_remove_numbers`: numbers not included in the comparison
+      * `job_match_remove_num_brackets`: numbers in brackets not included in the comparison
+      * `job_match_remove_pattern`: remove string from job names, ex 'wPipeline_'
+      * `job_match_remove_text_within_parentheses`: remove any string within parentheses
+  * flavor selection
+    * `flavor_default`: if filled, use the default flavor - select the maximum required flavor!
+    * `flavor_cut`: ex. 0.9 - cut 10% of the lower flavors, or remove a number of flavors
+    * ephemeral flavors
+      * `flavor_ephemeral`: only use ephemeral flavors by automatic scaling
+      * `tmp_disk_check`: if active, jobs and worker need a tmp_disk value
+      * possible combination:
+        * `flavor_ephemeral: True` and `tmp_disk_check: False`
+        * `flavor_ephemeral: False` and `tmp_disk_check: True`
+  * `flavor_depth`
+    * Pre-Launch the next x workers by flavor, only useful with a job priority with high resources first.
+    * `0`: single flavor, start only workers for next jobs in queue
+    * `-1`: start multiple flavors in one iteration, may break start-up limits
+    * `-2`: no flavor data separation, select the highest flavor, similar flavor data not compatible
+    * `-3`: single flavor in one iteration, but search all flavor levels, start the first (highest) flavor with generated scale up data
+    * x (positive value): single flavor in one iteration, search for new workers by the next x flavors
+      
