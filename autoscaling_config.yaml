@@ -12,7 +12,7 @@ scaling:
 
       # ---------- limits ----------
       limit_memory: 0                 # memory limit in TB, deactivate with 0
-      limit_worker_starts: 0          # worker start limit per flavor and cycle, deactivate with 0
+      limit_worker_starts: 10         # worker start limit per flavor and cycle, deactivate with 0
       limit_workers: 0                # limit the number of active workers, deactivate with 0
 
       # ---------- scale force ----------
@@ -31,27 +31,26 @@ scaling:
       job_time_long: 1200             # set a maximum job time
       job_time_short: 1               # set a minimum job time
       job_time_range_automatic: False # automatic job range, extend short and long values from job history
-      # DELETE dictionary on change
       job_time_flavor: True           # if jobs are not in history, use the average job time from flavor data
 
       # ---------- watch for similar jobs ----------
+      job_match_search: True          # True = active, search for similar jobs in history
       job_match_value: 0.95           # compare jobs from history by match value (SequenceMatcher),
       # job name must match at least to 0.95 = 95%
       job_match_similar: 0.48         # lower value (0-1) - tend to start new workers, for jobs with a short runtime
 
+      # job name modification
       job_match_remove_numbers: True        # numbers not included in the comparison
       job_match_remove_num_brackets: True   # numbers in brackets not included in the comparison
       job_match_remove_pattern: ''          # remove string from job names, ex 'wPipeline_'
-      job_match_remove_text_within_parentheses: False # remove any string within parentheses
-
-      job_match_search: True          # True = active, search for similar jobs in history
+      job_match_remove_text_within_parentheses: True # remove any string within parentheses
 
       # ---------- flavor selection ----------
-      flavor_fix: False               # if activated, use the default flavor
       flavor_cut: 0                   # 0.9 - cut 10% of the lower flavors, or remove a number of flavors
-      flavor_default: "de.NBI large + ephemeral" # select maximum required flavor!
+      flavor_default: ""              # if activated (not an empty string), use the default flavor
+                                      # ex. "de.NBI large + ephemeral" # select maximum required flavor!
       flavor_ephemeral: True          # only use ephemeral flavors by automatic scaling
-      tmp_disk_check: False           # if active, flavor_ephemeral ignored - jobs NEED tmp_disk value!
+      tmp_disk_check: False           # if active, jobs and worker need a tmp_disk value
 
       # examples:
       # tmp_disk_check False; flavor_ephemeral False: only flavors without ephemeral, DO NOT USE THIS COMBINATION!
@@ -93,7 +92,7 @@ scaling:
 
       # ---------- limits ----------
       limit_memory: 0
-      limit_worker_starts: 0
+      limit_worker_starts: 10
       limit_workers: 0
 
       # ---------- scale force ----------
@@ -119,14 +118,13 @@ scaling:
       job_match_remove_numbers: True
       job_match_remove_num_brackets: True
       job_match_remove_pattern: ''
-      job_match_remove_text_within_parentheses: False
+      job_match_remove_text_within_parentheses: True
 
       job_match_search: True
 
       # ---------- flavor selection ----------
-      flavor_fix: False
       flavor_cut: 0
-      flavor_default: "de.NBI large + ephemeral"
+      flavor_default: ""
       flavor_ephemeral: True
       tmp_disk_check: False
 
@@ -163,7 +161,7 @@ scaling:
 
       # ---------- scale wait ----------
       scale_delay: 60
-      scale_frequency: 0
+      scale_frequency: 120
 
       # ---------- scale force worker ----------
       worker_weight: 0.00
@@ -181,14 +179,13 @@ scaling:
       job_match_remove_numbers: True
       job_match_remove_num_brackets: True
       job_match_remove_pattern: ''
-      job_match_remove_text_within_parentheses: False
+      job_match_remove_text_within_parentheses: True
 
       job_match_search: True
 
       # ---------- flavor selection ----------
-      flavor_fix: False
       flavor_cut: 0
-      flavor_default: "de.NBI large + ephemeral"
+      flavor_default: ""
       flavor_ephemeral: True
       tmp_disk_check: False
 
@@ -225,7 +222,7 @@ scaling:
 
       # ---------- scale wait ----------
       scale_delay: 60
-      scale_frequency: 60
+      scale_frequency: 120
 
       # ---------- scale force worker ----------
       worker_weight: 0.00
@@ -243,14 +240,13 @@ scaling:
       job_match_remove_numbers: True
       job_match_remove_num_brackets: True
       job_match_remove_pattern: ''
-      job_match_remove_text_within_parentheses: False
+      job_match_remove_text_within_parentheses: True
 
       job_match_search: True
 
       # ---------- flavor selection ----------
-      flavor_fix: False
       flavor_cut: 0
-      flavor_default: "de.NBI large + ephemeral"
+      flavor_default: ""
       flavor_ephemeral: True
       tmp_disk_check: False
 
@@ -279,7 +275,7 @@ scaling:
 
       # ---------- limits ----------
       limit_memory: 0
-      limit_worker_starts: 0
+      limit_worker_starts: 10
       limit_workers: 0
 
       # ---------- scale force ----------
@@ -305,14 +301,13 @@ scaling:
       job_match_remove_numbers: True
       job_match_remove_num_brackets: True
       job_match_remove_pattern: ''
-      job_match_remove_text_within_parentheses: False
+      job_match_remove_text_within_parentheses: True
 
       job_match_search: False
 
       # ---------- flavor selection ----------
-      flavor_fix: False
       flavor_cut: 0
-      flavor_default: "de.NBI large + ephemeral"
+      flavor_default: ""
       flavor_ephemeral: True
       tmp_disk_check: False
 
@@ -340,7 +335,7 @@ scaling:
 
       # ---------- limits ----------
       limit_memory: 0
-      limit_worker_starts: 0
+      limit_worker_starts: 5
       limit_workers: 0
 
       # ---------- scale force ----------
@@ -348,7 +343,7 @@ scaling:
 
       # ---------- scale wait ----------
       scale_delay: 60
-      scale_frequency: 60
+      scale_frequency: 0
 
       # ---------- scale force worker ----------
       worker_weight: 0.1
@@ -366,14 +361,13 @@ scaling:
       job_match_remove_numbers: True
       job_match_remove_num_brackets: True
       job_match_remove_pattern: ''
-      job_match_remove_text_within_parentheses: False
+      job_match_remove_text_within_parentheses: True
 
       job_match_search: True
 
       # ---------- flavor selection ----------
-      flavor_fix: False
       flavor_cut: 0
-      flavor_default: "de.NBI large + ephemeral"
+      flavor_default: ""
       flavor_ephemeral: True
       tmp_disk_check: False
 
