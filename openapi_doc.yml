@@ -19,9 +19,6 @@ paths:
         - scale-up
       requestBody:
 
-        # old version
-        #$ref: '#/components/requestBodies/cluster_scale-up'
-
         $ref: '#/components/requestBodies/cluster_scale-up_flavors'
       responses:
         '200':
