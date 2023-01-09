@@ -177,10 +177,10 @@ Dynamic worker limit per cycle, depends on pending jobs and the selected setting
 ###### timing
 * `scale_delay`: `60`
   * Waiting time in seconds to avoid overlaps with the reassignment of workers with jobs before scale-down.
-* `scale_down_frequency`: `60`
-  * Workers receive a minimum idle lifetime.
-  * Remaining active workers can reduce the frequency that workers have to be restarted because they are deleted too early due to delayed job rescheduling.
-  * deactivate with `0`
+* `worker_cool_down`: `60`
+  * Workers receive a minimum idle lifetime (in seconds) for cool down, deactivate with `0`
+  * Remaining active workers can reduce the frequency that workers have to be restarted because they are deleted too
+    early due to delayed job rescheduling.
   * Delay in seconds, corresponds to the idle time since the last started job until a worker can be deleted.
 * `service_frequency`: `60`
   * Autoscaling execution is delayed a specified number of seconds between program iterations.
@@ -197,9 +197,14 @@ Dynamic worker limit per cycle, depends on pending jobs and the selected setting
 * `forecast_by_job_history`: `True`
   * If active, search for elapsed job times in history.
   * Jobs are grouped by flavor resources and job identification pattern (default: job name).
-* `forecast_active_worker`: `1` 
+* `forecast_active_worker`: `1`
   * Forecast job processing from active workers.
-  * Use the expected remaining job time from current running jobs. Search for resources on active workers that will become available soon.
+  * Use the expected remaining job time from current running jobs. Search for resources on active workers that will
+    become available soon.
+* `forecast_occupied_worker`: `True`
+  * When active workers are occupied with current running jobs, permit a new
+    worker even with reduced predicted time effort to speed up processing. This
+    option is only usable in combination with `forecast_active_worker`.
 * `job_match_value`: `0.95`
   * Search for job patterns in history with the provided accuracy.
 * `job_time_threshold`: `0.50`
@@ -276,3 +281,16 @@ This option will set larger nodes than required by the jobs into drain state. Jo
   ```
 * Select own scheduler settings, influence the job scheduling order for example over job priority.
 * Only updated if supported by the ansible playbook.
+
+###### Python dependencies
+
+* python>=3.8
+* Slurm interface
+  * Pyslurm
+    * https://github.com/PySlurm/pyslurm/tree/slurm-20.11.8
+  * cython>=0.29.32
+* numpy>=1.23.5
+* pandas>=1.5.2
+* matplotlib>=3.6.2
+* pyyaml>=6.0
+* requests>=2.28.1
