@@ -1,0 +1,148 @@
+scaling:
+  scheduler: slurm
+  active_mode: basic
+  automatic_update: True
+  database_reset: False
+  pattern_id: ''
+  history_recall: 7
+  ignore_workers: [ ]
+
+  mode:
+    basic:
+      info: 'start multiple flavors for 60% pending jobs, no limitations, no time forecast'
+      service_frequency: 60
+      limit_memory: 0
+      limit_worker_starts: 0
+      limit_workers: 0
+      limit_flavor_usage:
+      #        'de.NBI highmem xlarge': 16
+      #        'de.NBI highmem large': 20
+      scale_force: 0.6
+      scale_delay: 60
+      worker_cool_down: 60
+      worker_weight: 0
+      smoothing_coefficient: 0.00
+      forecast_by_flavor_history: False
+      job_match_value: 0.95
+      job_time_threshold: 0.5
+      job_name_remove_numbers: True
+      job_name_remove_num_brackets: True
+      job_name_remove_pattern: ''
+      job_name_remove_text_within_parentheses: True
+      forecast_by_job_history: False
+      forecast_active_worker: 0
+      forecast_occupied_worker: False
+      flavor_restriction: 0
+      flavor_default: ""
+      flavor_ephemeral: True
+      flavor_gpu: 1
+      flavor_depth: -1
+      large_flavors: False
+      large_flavors_except_hmf: True
+      auto_activate_large_flavors: 10
+      drain_large_nodes: False
+      drain_only_hmf: False
+      drain_delay: 0
+
+    approach:
+      info: 'start workers for 60% pending jobs, approach by 10 workers per flavor and service frequency'
+      limit_worker_starts: 10
+      scale_force: 0.6
+
+    adaptive:
+      info: 'forecast job time, start worker one flavor ahead in queue, set max 50% hmf worker per service request to drain'
+      limit_worker_starts: 10
+      smoothing_coefficient: 0.05
+      forecast_by_flavor_history: True
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      job_time_threshold: 0.50
+      flavor_depth: 1
+      drain_large_nodes: True
+      drain_only_hmf: True
+      drain_delay: -1
+
+    sequence:
+      info: 'forecast job time, start worker for the next jobs in queue with the same flavor'
+      forecast_by_flavor_history: True
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      job_time_threshold: 0.50
+
+    multi:
+      info: 'forecast job time, start multiple flavors, automatic higher (threshold 10)'
+      smoothing_coefficient: 0.01
+      forecast_by_flavor_history: True
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      job_time_threshold: 0.50
+      flavor_depth: -1
+      large_flavors: False
+      large_flavors_except_hmf: True
+      auto_activate_large_flavors: 10
+
+    max:
+      info: 'forecast job time, maximum worker - no flavor separation'
+      worker_cool_down: 60
+      worker_weight: 0.00
+      smoothing_coefficient: 0.00
+      forecast_by_flavor_history: True
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      job_time_threshold: 0.50
+      flavor_restriction: 0.5
+      flavor_depth: -2
+
+    default:
+      info: 'forecast job time, start multiple flavors, prefer higher flavors (except high memory), smooth time'
+      scale_delay: 60
+      worker_cool_down: 60
+      smoothing_coefficient: 0.01
+      forecast_by_flavor_history: False
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      forecast_occupied_worker: True
+      job_time_threshold: 0.50
+      flavor_depth: -1
+      large_flavors: True
+      large_flavors_except_hmf: True
+
+    flavor:
+      info: 'forecast job time only on flavor level, start multiple flavors, prefer higher flavors (except high memory)'
+      limit_worker_starts: 10
+      smoothing_coefficient: 0.00
+      forecast_by_flavor_history: True
+      forecast_by_job_history: False
+      forecast_active_worker: 1
+      job_time_threshold: 0.4
+      flavor_depth: 0
+      large_flavors: False
+      large_flavors_except_hmf: True
+      auto_activate_large_flavors: 10
+
+    min:
+      info: 'forecast job time, start a single flavor, aggressive worker drain and scale-down'
+      limit_worker_starts: 10
+      worker_cool_down: 0
+      worker_weight: 0.1
+      smoothing_coefficient: 0.00
+      forecast_by_flavor_history: True
+      forecast_by_job_history: True
+      forecast_active_worker: 1
+      job_time_threshold: 0.6
+      flavor_depth: 0
+      drain_large_nodes: True
+      drain_only_hmf: False
+      drain_delay: 0
+
+    reactive:
+      info: 'forecast job time, start multiple flavors, prefer higher flavors (except high memory) + more workers per runtime + without active worker forecast'
+      scale_force: 0.8
+      smoothing_coefficient: 0.02
+      forecast_by_flavor_history: False
+      forecast_by_job_history: True
+      forecast_active_worker: 0
+      job_time_threshold: 0.20
+      flavor_depth: -1
+      large_flavors: True
+      large_flavors_except_hmf: True
