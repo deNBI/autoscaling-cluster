@@ -4346,7 +4346,7 @@ def __run_as_service():
 
 
 def __log_watch():
-     logger
+    global logger
     if LOG_LEVEL == logging.DEBUG:
         logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + '_csv.log')
     time_ = 0
