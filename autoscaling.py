@@ -879,8 +879,8 @@ def rescale_init(cluster_data, dummy_worker):
 
     logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
     try:
-        ScalingDown(password=cluster_pw, dummy_worker=dummy_worker)
-        ScalingUp(password=cluster_pw, dummy_worker=dummy_worker, cluster_data=cluster_data)
+        ScalingDown(password=__get_cluster_password(), dummy_worker=dummy_worker)
+        ScalingUp(password=__get_cluster_password(), dummy_worker=dummy_worker, cluster_data=cluster_data)
         playbook_success = run_ansible_playbook()
         if not playbook_success:
             # intercept random and temporal errors
@@ -1545,7 +1545,7 @@ def get_cluster_data():
         if api error: None
     """
     try:
-        json_data = {"scaling": "scaling_up", "password": cluster_pw, "version": VERSION}
+        json_data = {"scaling": "scaling_up", "password": __get_cluster_password(), "version": VERSION}
         response = requests.post(url=get_url_info_cluster(),
                                  json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
@@ -1741,7 +1741,7 @@ def get_usable_flavors(quiet, cut):
     """
     try:
         res = requests.post(url=get_url_info_flavors(),
-                            json={"password": cluster_pw, "version": VERSION})
+                            json={"password": __get_cluster_password(), "version": VERSION})
 
         if res.status_code == HTTP_CODE_OK:
             flavors_data = res.json()
@@ -1885,11 +1885,9 @@ def __get_cluster_password():
 
     :return: "CLUSTER_PASSWORD"
     """
-    global cluster_pw
     pw_json = __get_file(CLUSTER_PASSWORD_FILE)
-    if pw_json is not None:
-        cluster_pw = pw_json['password']
-        logger.debug("pw_json: %s", cluster_pw)
+    cluster_pw = pw_json['password']
+    logger.debug("pw_json: %s", cluster_pw)
     return cluster_pw
 
 
@@ -3289,7 +3287,7 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
         # limit worker starts
         if limit_worker_starts != 0 and upscale_limit > limit_worker_starts:
             upscale_limit = limit_worker_starts
-        scale_up_data = {"password": cluster_pw, "worker_flavor_name": flavor_tmp['flavor']['name'],
+        scale_up_data = {"password": __get_cluster_password(), "worker_flavor_name": flavor_tmp['flavor']['name'],
                          "upscale_count": upscale_limit, 'version': VERSION}
         logger.debug("track upscale limit level %s: %s  - start limit", level, upscale_limit)
         logger.debug("scale-up-data: \n%s", pformat(scale_up_data))
@@ -3615,18 +3613,12 @@ def multiscale(flavor_data, dummy_worker):
 
 
 def __cloud_api_(portal_url_scale, worker_data):
-    global cluster_pw
-
     response = requests.post(url=portal_url_scale, json=worker_data)
     response.raise_for_status()
     logger.info("response code: %s, message: %s", response.status_code, response.text)
 
-    cluster_pw = json.loads(response.text)['password']
-
-    # backup cluster password
     with open(CLUSTER_PASSWORD_FILE, 'w', encoding='utf8') as f:
         f.write(response.text)
-    return cluster_pw
 
 
 def __sleep_on_server_error():
@@ -3837,7 +3829,7 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     if not worker_hostnames:
         return False
 
-    data = {"password": cluster_pw,
+    data = {"password": __get_cluster_password(),
             "worker_hostnames": worker_hostnames, "version": VERSION}
     logger.debug("portal_url_scaledown_specific: %s", get_url_scale_down_specific())
     logger.debug("\nparams send: \n%s", json.dumps(data, indent=4, sort_keys=True) + "\n")
@@ -3932,7 +3924,7 @@ def __cluster_scale_up_test(upscale_limit):
     """
     logger.info("----- test upscaling, start %d new worker nodes with %s -----", upscale_limit,
                 config_mode['flavor_default'])
-    up_scale_data = {"password": cluster_pw, "worker_flavor_name": config_mode['flavor_default'],
+    up_scale_data = {"password": __get_cluster_password(), "worker_flavor_name": config_mode['flavor_default'],
                      "upscale_count": upscale_limit, "version": VERSION}
     cloud_api(get_url_scale_up(), up_scale_data)
     rescale_cluster(0, None)
@@ -3948,7 +3940,7 @@ def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale, dummy_worke
     :return: boolean, success
     """
     logger.info("----- upscaling, start %d new worker nodes with %s -----", upscale_limit, flavor_name)
-    up_scale_data = {"password": cluster_pw, "worker_flavor_name": flavor_name,
+    up_scale_data = {"password": __get_cluster_password(), "worker_flavor_name": flavor_name,
                      "upscale_count": upscale_limit, "version": VERSION}
     _, worker_count, _, _, _ = receive_node_data_live()
     if not cloud_api(get_url_scale_up(), up_scale_data):
@@ -4354,14 +4346,13 @@ def __run_as_service():
 
 
 def __log_watch():
-    global cluster_pw, logger
+     logger
     if LOG_LEVEL == logging.DEBUG:
         logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + '_csv.log')
     time_ = 0
     while True:
         try:
             time_ = time.time()
-            cluster_pw = __get_cluster_password()
             __csv_log_entry('C', '0', '0')
             time_ = (time.time() - time_)
             logger.debug("created clock log entry in %s seconds", time_)
@@ -4421,6 +4412,7 @@ def __get_time():
     :return: current time in seconds
     """
     return int(str((datetime.datetime.now().replace(microsecond=0).timestamp())).split('.', maxsplit=1)[0])
+
 
 def job_data_from_database(dict_db, flavor_name, job_name, multi_flavor):
     """
@@ -5209,11 +5201,11 @@ if __name__ == '__main__':
     config_hash = generate_hash(FILE_CONFIG_YAML)
     scheduler = config_data['scheduler']
     cluster_id = read_cluster_id()
-    cluster_pw = __get_cluster_password()
     # load scheduler interface
     if scheduler == "slurm":
         logger.info("scheduler selected: %s", scheduler)
         import pyslurm
+
         scheduler_interface = SlurmInterface()
     if not scheduler_interface:
         logger.error("scheduler interface not available: %s", scheduler)
