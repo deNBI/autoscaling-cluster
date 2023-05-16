@@ -3,4 +3,4 @@ numpy==1.23.5
 pandas==1.4.4
 pyslurm==18.8.1.1
 PyYAML==6.0
-requests==2.25.1
+requests==2.30.0
