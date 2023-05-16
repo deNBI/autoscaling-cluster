@@ -1,63 +1,66 @@
 #!/usr/bin/python3
 
-import difflib
-import os
-import time
-import sys
-import re
-import datetime
-import calendar
-import json
-import textwrap
-import enum
-import logging
-import inspect
-import csv
-import traceback
-import math
 import abc
-import subprocess
+import calendar
+import csv
+import datetime
+import difflib
+import enum
 import hashlib
+import inspect
+import json
+import logging
+import math
+import os
+import re
 import signal
+import subprocess
+import sys
+import textwrap
+import time
+import traceback
+from functools import total_ordering
+from logging.handlers import RotatingFileHandler
+from multiprocessing import Process
 from pathlib import Path
 from pprint import pformat, pprint
-from functools import total_ordering
-from subprocess import Popen, PIPE
-from multiprocessing import Process
-from logging.handlers import RotatingFileHandler
-import requests
-import pandas as pd
-import matplotlib.pyplot as plt
+from subprocess import PIPE, Popen
+
 import matplotlib.backends.backend_pdf
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import requests
 import yaml
 
 LOG_LEVEL = logging.INFO
 VERSION = "0.4.0"
-OUTDATED_SCRIPT_MSG = "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] " \
-                      "-  please download the current version and run it again!"
+OUTDATED_SCRIPT_MSG = (
+    "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
+    "-  please download the current version and run it again!"
+)
 
-PORTAL_LINK = 'https://cloud.denbi.de'
+PORTAL_LINK = "https://cloud.denbi.de"
 REPO_LINK = ""
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 405
 
-AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + '/'
+AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
 IDENTIFIER = "autoscaling"
 
-FILE_CONFIG = IDENTIFIER + '_config.yaml'
+FILE_CONFIG = IDENTIFIER + "_config.yaml"
 FILE_CONFIG_YAML = AUTOSCALING_FOLDER + FILE_CONFIG
-FILE_ID = IDENTIFIER + '.py'
+FILE_ID = IDENTIFIER + ".py"
 FILE_PROG = AUTOSCALING_FOLDER + FILE_ID
 FILE_PID = IDENTIFIER + ".pid"
 SOURCE_LINK = REPO_LINK + FILE_ID
 SOURCE_LINK_CONFIG = REPO_LINK + FILE_CONFIG
 
-CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + 'cluster_pw.json'
+CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + "cluster_pw.json"
 
-LOG_FILE = AUTOSCALING_FOLDER + IDENTIFIER + '.log'
-LOG_CSV = AUTOSCALING_FOLDER + IDENTIFIER + '.csv'
+LOG_FILE = AUTOSCALING_FOLDER + IDENTIFIER + ".log"
+LOG_CSV = AUTOSCALING_FOLDER + IDENTIFIER + ".csv"
 
 NORM_HIGH = None
 NORM_LOW = 0.0001
@@ -92,19 +95,19 @@ JOB_RUNNING = 1
 
 DOWNSCALE_LIMIT = 0
 WAIT_CLUSTER_SCALING = 10
-FLAVOR_HIGH_MEM = 'hmf'
+FLAVOR_HIGH_MEM = "hmf"
 
-DATABASE_FILE = AUTOSCALING_FOLDER + IDENTIFIER + '_database.json'
+DATABASE_FILE = AUTOSCALING_FOLDER + IDENTIFIER + "_database.json"
 DATA_LONG_TIME = 7
 DATABASE_WORKER_PATTERN = " + ephemeral"
 
 HOME = str(Path.home())
-PLAYBOOK_DIR = HOME + '/playbook'
-PLAYBOOK_VARS_DIR = HOME + '/playbook/vars'
-COMMON_CONFIGURATION_YML = PLAYBOOK_VARS_DIR + '/common_configuration.yml'
-ANSIBLE_HOSTS_FILE = PLAYBOOK_DIR + '/ansible_hosts'
-INSTANCES_YML = PLAYBOOK_VARS_DIR + '/instances.yml'
-SCHEDULER_YML = PLAYBOOK_VARS_DIR + '/scheduler_config.yml'
+PLAYBOOK_DIR = HOME + "/playbook"
+PLAYBOOK_VARS_DIR = HOME + "/playbook/vars"
+COMMON_CONFIGURATION_YML = PLAYBOOK_VARS_DIR + "/common_configuration.yml"
+ANSIBLE_HOSTS_FILE = PLAYBOOK_DIR + "/ansible_hosts"
+INSTANCES_YML = PLAYBOOK_VARS_DIR + "/instances.yml"
+SCHEDULER_YML = PLAYBOOK_VARS_DIR + "/scheduler_config.yml"
 
 
 @total_ordering
@@ -112,6 +115,7 @@ class ScaleState(enum.Enum):
     """
     Possible program scaling states.
     """
+
     UP = 1
     DOWN = 0
     SKIP = 2
@@ -130,6 +134,7 @@ class Rescale(enum.Enum):
     """
     Rescaling types.
     """
+
     INIT = 0
     CHECK = 1
     NONE = 2
@@ -143,10 +148,13 @@ class TerminateProtected:
             function_1()
             function_2()
     """
+
     killed = False
 
     def _handler(self, signum, frame):
-        logging.error("Received SIGINT or SIGTERM! Finishing this code block, then exiting.")
+        logging.error(
+            "Received SIGINT or SIGTERM! Finishing this code block, then exiting."
+        )
         self.killed = True
 
     def __enter__(self):
@@ -343,14 +351,20 @@ class SlurmInterface(SchedulerInterface):
         :param slurm_command:
         :return: json data from slurm output
         """
-        process = Popen([slurm_command, '-o', '%all'], stdout=PIPE, stderr=PIPE, shell=False, universal_newlines=True)
+        process = Popen(
+            [slurm_command, "-o", "%all"],
+            stdout=PIPE,
+            stderr=PIPE,
+            shell=False,
+            universal_newlines=True,
+        )
         proc_stdout, proc_stderr = process.communicate()
-        lines = proc_stdout.split('\n')
+        lines = proc_stdout.split("\n")
         header_line = lines.pop(0)
-        header_cols = header_line.split('|')
+        header_cols = header_line.split("|")
         entries = []
         for line in lines:
-            parts = line.split('|')
+            parts = line.split("|")
             val_dict = {}
             if len(parts) == len(header_cols):
                 for i, key in enumerate(header_cols):
@@ -389,7 +403,7 @@ class SlurmInterface(SchedulerInterface):
         :return:
         """
         state = state.upper()
-        if state == 'PENDING':
+        if state == "PENDING":
             state_id = JOB_PENDING
         elif state == "RUNNING":
             state_id = JOB_RUNNING
@@ -403,28 +417,29 @@ class SlurmInterface(SchedulerInterface):
         :return: json object
         """
 
-        node_dict = self.get_json('sinfo')
+        node_dict = self.get_json("sinfo")
         node_dict_format = {}
         for i in node_dict:
-            gres = i['GRES '].replace(" ", "")
+            gres = i["GRES "].replace(" ", "")
             free_mem = None
             if "null" in gres:
-                gpu = ['gpu:0']
+                gpu = ["gpu:0"]
             else:
                 gpu = [gres]
-            if i['FREE_MEM'].isnumeric():
-                free_mem = int(i['FREE_MEM'])
+            if i["FREE_MEM"].isnumeric():
+                free_mem = int(i["FREE_MEM"])
             node_dict_format.update(
-                {i['HOSTNAMES']:
-                     {'cpus': int(i['CPUS']),
-                      'real_memory': int(i['MEMORY']),
-                      'state': self.__convert_node_state(i['STATE']),
-                      'tmp_disk': int(i['TMP_DISK']),
-                      'node_hostname': i['HOSTNAMES'],
-                      'gres': gpu,
-                      'free_mem': free_mem,
-                      }
-                 }
+                {
+                    i["HOSTNAMES"]: {
+                        "cpus": int(i["CPUS"]),
+                        "real_memory": int(i["MEMORY"]),
+                        "state": self.__convert_node_state(i["STATE"]),
+                        "tmp_disk": int(i["TMP_DISK"]),
+                        "node_hostname": i["HOSTNAMES"],
+                        "gres": gpu,
+                        "free_mem": free_mem,
+                    }
+                }
             )
         return node_dict_format
 
@@ -439,14 +454,14 @@ class SlurmInterface(SchedulerInterface):
         value = 0
         ftr = [60, 1]
         try:
-            time_split = time_str.split('-')
+            time_split = time_str.split("-")
             if len(time_split) > 1:
                 value += int(time_split[0]) * 3600 * 24
                 time_split = time_split[1]
             else:
                 time_split = time_split[0]
 
-            time_split = time_split.split(':')
+            time_split = time_split.split(":")
             if len(time_split) == 3:
                 ftr = [3600, 60, 1]
             value += sum([a * b for a, b in zip(ftr, map(int, time_split))])
@@ -460,46 +475,47 @@ class SlurmInterface(SchedulerInterface):
         Use squeue output from slurm, should be faster up-to-date
         :return: return current job data (no history) as dict
         """
-        squeue_json = self.get_json('squeue')
+        squeue_json = self.get_json("squeue")
         job_live_dict = {}
 
         for i in squeue_json:
-            mem = re.split('(\\d+)', i['MIN_MEMORY'])
-            disk = re.split('(\\d+)', i['MIN_TMP_DISK'])
-            if i['COMMENT'] == '(null)':
+            mem = re.split("(\\d+)", i["MIN_MEMORY"])
+            disk = re.split("(\\d+)", i["MIN_TMP_DISK"])
+            if i["COMMENT"] == "(null)":
                 comment = None
             else:
-                comment = i['COMMENT']
+                comment = i["COMMENT"]
 
-            state_id = self.__convert_job_state(i['STATE'])
+            state_id = self.__convert_job_state(i["STATE"])
 
             if state_id >= 0:
                 job_live_dict.update(
-                    {i['JOBID']:
-                         {'jobid': int(i['JOBID']),
-                          'req_cpus': int(i['MIN_CPUS']),
-                          'req_mem': self.memory_size_ib(mem[1], mem[2]),
-                          'state': state_id,
-                          'state_str': i['STATE'],
-                          'tmp_disk': self.memory_size(disk[1], disk[2]),
-                          'priority': int(i['PRIORITY']),
-                          'jobname': i['NAME'],
-                          'req_gres': i['TRES_PER_NODE'],
-                          'nodes': i['NODELIST'],
-                          'elapsed': self.__time_to_seconds(i['TIME']),
-                          'comment': comment,
-                          }
-                     }
+                    {
+                        i["JOBID"]: {
+                            "jobid": int(i["JOBID"]),
+                            "req_cpus": int(i["MIN_CPUS"]),
+                            "req_mem": self.memory_size_ib(mem[1], mem[2]),
+                            "state": state_id,
+                            "state_str": i["STATE"],
+                            "tmp_disk": self.memory_size(disk[1], disk[2]),
+                            "priority": int(i["PRIORITY"]),
+                            "jobname": i["NAME"],
+                            "req_gres": i["TRES_PER_NODE"],
+                            "nodes": i["NODELIST"],
+                            "elapsed": self.__time_to_seconds(i["TIME"]),
+                            "comment": comment,
+                        }
+                    }
                 )
         return job_live_dict
 
     @staticmethod
     def memory_size_ib(num, ending):
-        if ending == 'G':
+        if ending == "G":
             tmp_disk = convert_gb_to_mib(num)
-        elif ending == 'M':
+        elif ending == "M":
             tmp_disk = int(num)
-        elif ending == 'T':
+        elif ending == "T":
             tmp_disk = convert_tb_to_mib(num)
         else:
             tmp_disk = int(num)
@@ -507,11 +523,11 @@ class SlurmInterface(SchedulerInterface):
 
     @staticmethod
     def memory_size(num, ending):
-        if ending == 'G':
+        if ending == "G":
             tmp_disk = convert_gb_to_mb(num)
-        elif ending == 'M':
+        elif ending == "M":
             tmp_disk = int(num)
-        elif ending == 'T':
+        elif ending == "T":
             tmp_disk = convert_tb_to_mb(num)
         else:
             tmp_disk = int(num)
@@ -524,8 +540,8 @@ class SlurmInterface(SchedulerInterface):
         :return:
         """
         for key, entry in jobs_dict.items():
-            if 'tmp_disk' not in entry:
-                jobs_dict[key]['tmp_disk'] = 0
+            if "tmp_disk" not in entry:
+                jobs_dict[key]["tmp_disk"] = 0
         return dict(jobs_dict)
 
     def fetch_scheduler_job_data_by_range(self, start, end):
@@ -539,7 +555,9 @@ class SlurmInterface(SchedulerInterface):
         """
         try:
             jobs = pyslurm.slurmdb_jobs()
-            jobs_dict = jobs.get(starttime=start.encode("utf-8"), endtime=end.encode("utf-8"))
+            jobs_dict = jobs.get(
+                starttime=start.encode("utf-8"), endtime=end.encode("utf-8")
+            )
             jobs_dict = self.add_jobs_tmp_disk(jobs_dict)
             return jobs_dict
         except ValueError as e:
@@ -552,8 +570,12 @@ class SlurmInterface(SchedulerInterface):
         :param num_days: number of past days
         :return: jobs_dict
         """
-        start = (datetime.datetime.utcnow() - datetime.timedelta(days=num_days)).strftime("%Y-%m-%dT00:00:00")
-        end = (datetime.datetime.utcnow() + datetime.timedelta(days=num_days)).strftime("%Y-%m-%dT00:00:00")
+        start = (
+            datetime.datetime.utcnow() - datetime.timedelta(days=num_days)
+        ).strftime("%Y-%m-%dT00:00:00")
+        end = (datetime.datetime.utcnow() + datetime.timedelta(days=num_days)).strftime(
+            "%Y-%m-%dT00:00:00"
+        )
         return self.fetch_scheduler_job_data_by_range(start, end)
 
     def set_node_to_drain(self, w_key):
@@ -565,7 +587,11 @@ class SlurmInterface(SchedulerInterface):
         :return:
         """
         logger.debug("drain node %s  ", w_key)
-        os.system("sudo scontrol update nodename=" + str(w_key) + " state=drain reason=REPLACE")
+        os.system(
+            "sudo scontrol update nodename="
+            + str(w_key)
+            + " state=drain reason=REPLACE"
+        )
 
     def set_node_to_resume(self, w_key):
         """
@@ -579,7 +605,6 @@ class SlurmInterface(SchedulerInterface):
 
 
 class ScalingDown:
-
     def __init__(self, password, dummy_worker):
         self.password = password
         self.dummy_worker = dummy_worker
@@ -587,7 +612,11 @@ class ScalingDown:
         if self.data is None:
             print("get scaling down data: None")
             return
-        self.valid_delete_ips = [ip for ip in self.data["private_ips"] if ip is not None and self.validate_ip(ip)]
+        self.valid_delete_ips = [
+            ip
+            for ip in self.data["private_ips"]
+            if ip is not None and self.validate_ip(ip)
+        ]
         self.master_data = self.data["master"]
 
         if self.valid_delete_ips:
@@ -599,14 +628,23 @@ class ScalingDown:
             print("No valid Ips found!")
 
     def get_scaling_down_data(self):
-        res = requests.post(url=get_url_info_cluster(),
-                            json={"scaling": "scaling_down", "password": self.password, "version": VERSION},
-                            )
+        res = requests.post(
+            url=get_url_info_cluster(),
+            json={
+                "scaling": "scaling_down",
+                "password": self.password,
+                "version": VERSION,
+            },
+        )
         if res.status_code == HTTP_CODE_OK:
             data_json = res.json()
             version = data_json["VERSION"]
             if version != VERSION:
-                print(OUTDATED_SCRIPT_MSG.format(SCRIPT_VERSION=VERSION, LATEST_VERSION=version))
+                print(
+                    OUTDATED_SCRIPT_MSG.format(
+                        SCRIPT_VERSION=VERSION, LATEST_VERSION=version
+                    )
+                )
                 return None
         elif res.status_code == HTTP_CODE_UNAUTHORIZED:
             print(get_wrong_password_msg())
@@ -620,30 +658,37 @@ class ScalingDown:
         print("Validate  IP: ", ip)
         valid = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
         if not valid:
-            print("{} is no valid Ip! SKIPPING".format(ip))
+            print(f"{ip} is no valid Ip! SKIPPING")
         return valid
 
     def remove_worker_from_instances(self):
         print("Removing workers from instances")
-        with open(INSTANCES_YML, 'a+', encoding='utf8') as stream:
+        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
             stream.seek(0)
             try:
                 instances = yaml.safe_load(stream)
                 if not instances:
-                    instances = {"workers": [], "deletedWorkers": [], "master": self.master_data}
-                instances_mod = {"workers": [], "deletedWorkers": instances["deletedWorkers"],
-                                 "master": self.master_data}
+                    instances = {
+                        "workers": [],
+                        "deletedWorkers": [],
+                        "master": self.master_data,
+                    }
+                instances_mod = {
+                    "workers": [],
+                    "deletedWorkers": instances["deletedWorkers"],
+                    "master": self.master_data,
+                }
 
-                if instances['workers'] is not None:
-                    for idx, worker in enumerate(instances['workers']):
+                if instances["workers"] is not None:
+                    for idx, worker in enumerate(instances["workers"]):
                         # rescue worker data to deletedWorkers
-                        if worker['ip'] in self.valid_delete_ips:
+                        if worker["ip"] in self.valid_delete_ips:
                             # instances_mod['deletedWorkers'].append(worker)
                             pass
                         # rescue real worker data
                         elif self.dummy_worker is not None:
-                            if worker['ip'] != self.dummy_worker['ip']:
-                                instances_mod['workers'].append(worker)
+                            if worker["ip"] != self.dummy_worker["ip"]:
+                                instances_mod["workers"].append(worker)
 
                 stream.seek(0)
                 stream.truncate()
@@ -655,7 +700,7 @@ class ScalingDown:
     def delete_ip_yaml(self):
         print("Delete yaml file")
         for ip in self.valid_delete_ips:
-            yaml_file = PLAYBOOK_VARS_DIR + '/' + ip + '.yml'
+            yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
             if os.path.isfile(yaml_file):
                 print("Found: ", yaml_file)
                 os.remove(yaml_file)
@@ -667,7 +712,7 @@ class ScalingDown:
 
         print("Remove ips from ansible_hosts")
         lines = []
-        with open(ANSIBLE_HOSTS_FILE, 'r+', encoding='utf8') as ansible_hosts:
+        with open(ANSIBLE_HOSTS_FILE, "r+", encoding="utf8") as ansible_hosts:
             for line in ansible_hosts:
                 if not any(bad_word in line for bad_word in self.valid_delete_ips):
                     lines.append(line)
@@ -690,8 +735,13 @@ class ScalingUp:
             print("get scaling down data: None")
             return
         self.master_data = self.data["master"]
-        self.cluster_data = [worker for worker in self.data["active_worker"] if
-                             worker is not None and worker["status"] == "ACTIVE" and worker["ip"] is not None]
+        self.cluster_data = [
+            worker
+            for worker in self.data["active_worker"]
+            if worker is not None
+            and worker["status"] == "ACTIVE"
+            and worker["ip"] is not None
+        ]
 
         self.valid_upscale_ips = [cl["ip"] for cl in self.cluster_data]
 
@@ -708,29 +758,35 @@ class ScalingUp:
 
     def replace_cidr_for_nsf_mount(self):
         print("Get CIDR from common configuration")
-        with open(COMMON_CONFIGURATION_YML, 'r', encoding='utf8') as stream:
+        with open(COMMON_CONFIGURATION_YML, "r", encoding="utf8") as stream:
 
             try:
                 common_configuration_data = yaml.safe_load(stream)
                 cidr = common_configuration_data["CIDR"]
                 print(f"Current CIDR: {cidr}")
-                new_cidr = cidr[:7] + '.0.0/16'
+                new_cidr = cidr[:7] + ".0.0/16"
                 if cidr == new_cidr:
-                    print(f"CIDR is already fixed!")
+                    print("CIDR is already fixed!")
                     return
                 common_configuration_data["CIDR"] = new_cidr
 
             except yaml.YAMLError as exc:
                 print(exc)
                 sys.exit(1)
-        with open(COMMON_CONFIGURATION_YML, 'w', encoding='utf8') as f:
+        with open(COMMON_CONFIGURATION_YML, "w", encoding="utf8") as f:
             print(f"Replace old CIDR with: {new_cidr}")
             yaml.dump(common_configuration_data, f)
 
     def get_cluster_data(self):
 
-        res = requests.post(url=get_url_info_cluster(),
-                            json={"scaling": "scaling_up", "password": self.password, "version": VERSION})
+        res = requests.post(
+            url=get_url_info_cluster(),
+            json={
+                "scaling": "scaling_up",
+                "password": self.password,
+                "version": VERSION,
+            },
+        )
         if res.status_code == HTTP_CODE_OK:
             res = res.json()
             version_check(res["VERSION"])
@@ -748,23 +804,27 @@ class ScalingUp:
 
     def add_new_workers_to_instances(self, worker_data):
         print("Add workers to instances")
-        with open(INSTANCES_YML, 'a+', encoding='utf8') as stream:
+        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
             stream.seek(0)
             try:
                 instances = yaml.safe_load(stream)
                 if not instances:
-                    instances = {"workers": [], "deletedWorkers": [], "master": self.master_data}
-                if not instances['workers']:
-                    instances['workers'] = []
+                    instances = {
+                        "workers": [],
+                        "deletedWorkers": [],
+                        "master": self.master_data,
+                    }
+                if not instances["workers"]:
+                    instances["workers"] = []
                 if self.dummy_worker is not None:
-                    instances['workers'].append(self.dummy_worker)  # dummy test
-                worker_ips = [worker['ip'] for worker in instances['workers']]
+                    instances["workers"].append(self.dummy_worker)  # dummy test
+                worker_ips = [worker["ip"] for worker in instances["workers"]]
 
                 for new_worker in worker_data:
-                    if not new_worker['ip'] in worker_ips:
-                        instances['workers'].append(new_worker)
+                    if not new_worker["ip"] in worker_ips:
+                        instances["workers"].append(new_worker)
                     else:
-                        print("Worker with IP {} already registered!".format(new_worker['ip']))
+                        print(f"Worker with IP {new_worker['ip']} already registered!")
                 stream.seek(0)
                 stream.truncate()
                 yaml.dump(instances, stream)
@@ -776,26 +836,26 @@ class ScalingUp:
     def create_yml_file(self):
         workers_data = []
         for data in self.cluster_data:
-            yaml_file_target = PLAYBOOK_VARS_DIR + '/' + data['ip'] + '.yml'
+            yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
             if not os.path.exists(yaml_file_target):
-                with open(yaml_file_target, 'w+', encoding='utf8') as target:
+                with open(yaml_file_target, "w+", encoding="utf8") as target:
                     try:
                         yaml.dump(data, target)
                     except yaml.YAMLError as exc:
                         print("YAMLError ", exc)
                         sys.exit(1)
             else:
-                print("Yaml for worker with IP {} already exists".format(data['ip']))
+                print(f"Yaml for worker with IP {data['ip']} already exists")
             workers_data.append(data)
 
         return workers_data
 
     def add_ips_to_ansible_hosts(self):
         print("Add ips to ansible_hosts")
-        with open(ANSIBLE_HOSTS_FILE, 'r', encoding='utf8') as in_file:
+        with open(ANSIBLE_HOSTS_FILE, "r", encoding="utf8") as in_file:
             buf = in_file.readlines()
 
-        with open(ANSIBLE_HOSTS_FILE, 'w', encoding='utf8') as out_file:
+        with open(ANSIBLE_HOSTS_FILE, "w", encoding="utf8") as out_file:
             for line in buf:
                 if "[workers]" in line:
                     for ip in self.valid_upscale_ips:
@@ -817,8 +877,18 @@ def run_ansible_playbook():
     result_ = False
 
     try:
-        subprocess.run(['ansible-playbook', '--forks', forks_num, '-v', '-i', 'ansible_hosts', 'site.yml'],
-                       check=True)
+        subprocess.run(
+            [
+                "ansible-playbook",
+                "--forks",
+                forks_num,
+                "-v",
+                "-i",
+                "ansible_hosts",
+                "site.yml",
+            ],
+            check=True,
+        )
         logger.debug("ansible playbook success")
         result_ = True
     except subprocess.CalledProcessError:
@@ -847,17 +917,29 @@ def get_dummy_worker(flavors_data):
     if flavors_data:
         # over all flavors - include gpu
         for flavor_tmp in flavors_data:
-            ephemeral_disk = max(ephemeral_disk, convert_gb_to_mib(int(flavor_tmp['flavor']['ephemeral_disk'])))
-            max_memory = max(max_memory, convert_gb_to_mib(flavor_tmp['flavor']['ram_gib']))
-            max_cpu = max(max_cpu, flavor_tmp['flavor']['vcpus'])
-            max_gpu = max(max_gpu, int(flavor_tmp['flavor']['gpu']))
+            ephemeral_disk = max(
+                ephemeral_disk,
+                convert_gb_to_mib(int(flavor_tmp["flavor"]["ephemeral_disk"])),
+            )
+            max_memory = max(
+                max_memory, convert_gb_to_mib(flavor_tmp["flavor"]["ram_gib"])
+            )
+            max_cpu = max(max_cpu, flavor_tmp["flavor"]["vcpus"])
+            max_gpu = max(max_gpu, int(flavor_tmp["flavor"]["gpu"]))
     else:
         logger.error("no flavor available")
 
-    ephemerals = [{'size': ephemeral_disk, 'device': '/dev/vdb', 'mountpoint': '/mnt'}]
-    dummy_worker = {'cores': max_cpu, 'ephemeral_disk': ephemeral_disk, 'ephemerals': ephemerals,
-                    'hostname': NODE_DUMMY,
-                    'ip': '0.0.0.4', 'memory': max_memory, 'status': 'ACTIVE', 'gpu': max_gpu}
+    ephemerals = [{"size": ephemeral_disk, "device": "/dev/vdb", "mountpoint": "/mnt"}]
+    dummy_worker = {
+        "cores": max_cpu,
+        "ephemeral_disk": ephemeral_disk,
+        "ephemerals": ephemerals,
+        "hostname": NODE_DUMMY,
+        "ip": "0.0.0.4",
+        "memory": max_memory,
+        "status": "ACTIVE",
+        "gpu": max_gpu,
+    }
     logger.debug("dummy worker data: %s", dummy_worker)
     return dummy_worker
 
@@ -880,7 +962,11 @@ def rescale_init(cluster_data, dummy_worker):
     logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
     try:
         ScalingDown(password=__get_cluster_password(), dummy_worker=dummy_worker)
-        ScalingUp(password=__get_cluster_password(), dummy_worker=dummy_worker, cluster_data=cluster_data)
+        ScalingUp(
+            password=__get_cluster_password(),
+            dummy_worker=dummy_worker,
+            cluster_data=cluster_data,
+        )
         playbook_success = run_ansible_playbook()
         if not playbook_success:
             # intercept random and temporal errors
@@ -911,8 +997,8 @@ def __update_playbook_scheduler_config(set_config):
     scheduler_config = __read_yaml_file(SCHEDULER_YML)
     if scheduler_config is None:
         logger.info("ignore individual scheduler settings, not supported")
-    elif scheduler_config['scheduler_config']['priority_settings']:
-        scheduler_config['scheduler_config']['priority_settings'] = set_config
+    elif scheduler_config["scheduler_config"]["priority_settings"]:
+        scheduler_config["scheduler_config"]["priority_settings"] = set_config
         ___write_yaml_file(SCHEDULER_YML, scheduler_config)
         logger.debug("scheduler config updated")
     else:
@@ -935,52 +1021,52 @@ def __current_usage(worker_json, jobs_json):
     jobs_cpu_pending, jobs_mem_pending = 0, 0
     if jobs_json:
         for key, value in jobs_json.items():
-            if value['state'] == JOB_PENDING:
-                jobs_cpu_pending += value['req_cpus']
-                jobs_mem_pending += value['req_mem']
-            elif value['state'] == JOB_RUNNING:
-                jobs_cpu_alloc += value['req_cpus']
-                jobs_mem_alloc += value['req_mem']
+            if value["state"] == JOB_PENDING:
+                jobs_cpu_pending += value["req_cpus"]
+                jobs_mem_pending += value["req_mem"]
+            elif value["state"] == JOB_RUNNING:
+                jobs_cpu_alloc += value["req_cpus"]
+                jobs_mem_alloc += value["req_mem"]
     if worker_json:
         for key, value in worker_json.items():
-            if 'worker' not in key:
+            if "worker" not in key:
                 continue
-            if (NODE_ALLOCATED in value['state']) or (NODE_MIX in value['state']):
-                cpu_alloc += value['cpus']
-                mem_alloc += value['real_memory']
-                if NODE_DRAIN in value['state']:
-                    if NODE_ALLOCATED in value['state']:
-                        mem_alloc_drain += value['real_memory']
-                    elif NODE_MIX in value['state']:
-                        mem_mix_drain += value['real_memory']
+            if (NODE_ALLOCATED in value["state"]) or (NODE_MIX in value["state"]):
+                cpu_alloc += value["cpus"]
+                mem_alloc += value["real_memory"]
+                if NODE_DRAIN in value["state"]:
+                    if NODE_ALLOCATED in value["state"]:
+                        mem_alloc_drain += value["real_memory"]
+                    elif NODE_MIX in value["state"]:
+                        mem_mix_drain += value["real_memory"]
                 else:
-                    if NODE_ALLOCATED in value['state']:
-                        mem_alloc_no_drain += value['real_memory']
-                    elif NODE_MIX in value['state']:
-                        mem_mix_no_drain += value['real_memory']
-            elif NODE_IDLE in value['state']:
-                cpu_idle += value['cpus']
-                mem_idle += value['real_memory']
-                if NODE_DRAIN in value['state']:
-                    mem_idle_drain += value['real_memory']
+                    if NODE_ALLOCATED in value["state"]:
+                        mem_alloc_no_drain += value["real_memory"]
+                    elif NODE_MIX in value["state"]:
+                        mem_mix_no_drain += value["real_memory"]
+            elif NODE_IDLE in value["state"]:
+                cpu_idle += value["cpus"]
+                mem_idle += value["real_memory"]
+                if NODE_DRAIN in value["state"]:
+                    mem_idle_drain += value["real_memory"]
                 else:
-                    mem_idle_no_drain += value['real_memory']
+                    mem_idle_no_drain += value["real_memory"]
 
     usage_entry = {}
-    usage_entry.update({'cpu_alloc': cpu_alloc})
-    usage_entry.update({'mem_alloc': mem_alloc})
-    usage_entry.update({'cpu_idle': cpu_idle})
-    usage_entry.update({'mem_idle': mem_idle})
-    usage_entry.update({'jobs_cpu_alloc': jobs_cpu_alloc})
-    usage_entry.update({'jobs_mem_alloc': jobs_mem_alloc})
-    usage_entry.update({'jobs_cpu_pending': jobs_cpu_pending})
-    usage_entry.update({'jobs_mem_pending': jobs_mem_pending})
-    usage_entry.update({'worker_mem_alloc_drain': mem_alloc_drain})
-    usage_entry.update({'worker_mem_alloc': mem_alloc_no_drain})
-    usage_entry.update({'worker_mem_idle_drain': mem_idle_drain})
-    usage_entry.update({'worker_mem_idle': mem_idle_no_drain})
-    usage_entry.update({'worker_mem_mix_drain': mem_mix_drain})
-    usage_entry.update({'worker_mem_mix': mem_mix_no_drain})
+    usage_entry.update({"cpu_alloc": cpu_alloc})
+    usage_entry.update({"mem_alloc": mem_alloc})
+    usage_entry.update({"cpu_idle": cpu_idle})
+    usage_entry.update({"mem_idle": mem_idle})
+    usage_entry.update({"jobs_cpu_alloc": jobs_cpu_alloc})
+    usage_entry.update({"jobs_mem_alloc": jobs_mem_alloc})
+    usage_entry.update({"jobs_cpu_pending": jobs_cpu_pending})
+    usage_entry.update({"jobs_mem_pending": jobs_mem_pending})
+    usage_entry.update({"worker_mem_alloc_drain": mem_alloc_drain})
+    usage_entry.update({"worker_mem_alloc": mem_alloc_no_drain})
+    usage_entry.update({"worker_mem_idle_drain": mem_idle_drain})
+    usage_entry.update({"worker_mem_idle": mem_idle_no_drain})
+    usage_entry.update({"worker_mem_mix_drain": mem_mix_drain})
+    usage_entry.update({"worker_mem_mix": mem_mix_no_drain})
     return usage_entry
 
 
@@ -997,13 +1083,21 @@ def cluster_credit_usage():
     worker_credit_data = {}
     if cluster_workers is not None:
         for c_worker in cluster_workers:
-            if c_worker['status'] == WORKER_ACTIVE:
+            if c_worker["status"] == WORKER_ACTIVE:
                 credit_sum += cluster_worker_to_credit(flavors_data, c_worker)
-                if c_worker['flavor'] in worker_credit_data:
-                    worker_credit_data[c_worker['flavor']]['cnt'] += 1
+                if c_worker["flavor"] in worker_credit_data:
+                    worker_credit_data[c_worker["flavor"]]["cnt"] += 1
                 else:
                     worker_credit_data.update(
-                        {c_worker['flavor']: {'cnt': 0, 'credit': cluster_worker_to_credit(flavors_data, c_worker)}})
+                        {
+                            c_worker["flavor"]: {
+                                "cnt": 0,
+                                "credit": cluster_worker_to_credit(
+                                    flavors_data, c_worker
+                                ),
+                            }
+                        }
+                    )
     else:
         cluster_workers = []
     logger.info("current worker credit %s", credit_sum)
@@ -1020,7 +1114,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
     fv_data = cluster_worker_to_flavor(flavors_data, cluster_worker)
     if fv_data:
         try:
-            credit = float(fv_data['flavor']['credits_costs_per_hour'])
+            credit = float(fv_data["flavor"]["credits_costs_per_hour"])
             return credit
         except KeyError:
             logger.error("KeyError, missing credit in flavor data")
@@ -1030,7 +1124,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
 def worker_to_cluster_data(key, cluster_workers):
     if cluster_workers:
         for c_worker in cluster_workers:
-            if c_worker['hostname'] == key:
+            if c_worker["hostname"] == key:
                 return c_worker
         logger.error("worker %s not in cluster data", key)
     return None
@@ -1046,9 +1140,9 @@ def cluster_worker_to_flavor(flavors_data, cluster_worker):
 
     if cluster_worker:
         for fv_data in flavors_data:
-            if cluster_worker['flavor'] == fv_data['flavor']['name']:
+            if cluster_worker["flavor"] == fv_data["flavor"]["name"]:
                 return fv_data
-        logger.error("flavor not found for worker %s", cluster_worker['flavor'])
+        logger.error("flavor not found for worker %s", cluster_worker["flavor"])
     return None
 
 
@@ -1066,18 +1160,40 @@ def __csv_log_entry(scale_ud, worker_change, reason):
     """
     logger.debug("---- __csv_log_entry %s ----", scale_ud)
     header = [
-        'time', 'scale', 'worker_cnt', 'worker_cnt_use', 'worker_cnt_free', 'cpu_alloc', 'cpu_idle',
-        'mem_alloc', 'mem_idle', 'jobs_cnt_running', 'job_cnt_pending', 'jobs_cpu_alloc', 'jobs_cpu_pending',
-        'jobs_mem_alloc', 'jobs_mem_pending', 'worker_mem_alloc_drain', 'worker_mem_alloc',
-        'worker_mem_idle_drain', 'worker_mem_idle', 'worker_mem_mix_drain', 'worker_mem_mix', 'worker_drain_cnt',
-        'w_change', 'reason', 'credit', 'cluster_worker', 'worker_credit_data'
+        "time",
+        "scale",
+        "worker_cnt",
+        "worker_cnt_use",
+        "worker_cnt_free",
+        "cpu_alloc",
+        "cpu_idle",
+        "mem_alloc",
+        "mem_idle",
+        "jobs_cnt_running",
+        "job_cnt_pending",
+        "jobs_cpu_alloc",
+        "jobs_cpu_pending",
+        "jobs_mem_alloc",
+        "jobs_mem_pending",
+        "worker_mem_alloc_drain",
+        "worker_mem_alloc",
+        "worker_mem_idle_drain",
+        "worker_mem_idle",
+        "worker_mem_mix_drain",
+        "worker_mem_mix",
+        "worker_drain_cnt",
+        "w_change",
+        "reason",
+        "credit",
+        "cluster_worker",
+        "worker_credit_data",
     ]
     log_entry = {}
     try:
         if not os.path.exists(LOG_CSV) or os.path.getsize(LOG_CSV) == 0:
             logger.debug("missing log file, create file and header")
             __csv_writer(LOG_CSV, header)
-        if scale_ud == 'C' and LOG_LEVEL == logging.DEBUG:
+        if scale_ud == "C" and LOG_LEVEL == logging.DEBUG:
             credit_, cluster_worker_list, worker_credit_data = cluster_credit_usage()
         else:
             credit_ = 0
@@ -1085,25 +1201,34 @@ def __csv_log_entry(scale_ud, worker_change, reason):
             worker_credit_data = {}
 
         jobs_pending_dict, jobs_running_dict = receive_job_data()
-        worker_json, worker_count, worker_in_use, worker_drain, _ = receive_node_data_db(True)
+        (
+            worker_json,
+            worker_count,
+            worker_in_use,
+            worker_drain,
+            _,
+        ) = receive_node_data_db(True)
         if worker_json is None:
             return
 
-        log_entry.update({'time': __get_time()})
-        log_entry.update({'scale': scale_ud})
-        log_entry.update({'job_cnt_pending': len(jobs_pending_dict)})
-        log_entry.update({'jobs_cnt_running': len(jobs_running_dict)})
-        log_entry = {**log_entry, **__current_usage(worker_json, {**jobs_pending_dict, **jobs_running_dict})}
-        log_entry.update({'worker_cnt': worker_count})
-        log_entry.update({'worker_cnt_use': len(worker_in_use)})
-        log_entry.update({'worker_cnt_free': (worker_count - len(worker_in_use))})
-        log_entry.update({'worker_drain_cnt': len(worker_drain)})
-        log_entry.update({'worker_drain_cnt': len(worker_drain)})
-        log_entry.update({'w_change': worker_change})
-        log_entry.update({'reason': reason})
-        log_entry.update({'credit': credit_})
-        log_entry.update({'cluster_worker': len(cluster_worker_list)})
-        log_entry.update({'worker_credit_data': worker_credit_data})
+        log_entry.update({"time": __get_time()})
+        log_entry.update({"scale": scale_ud})
+        log_entry.update({"job_cnt_pending": len(jobs_pending_dict)})
+        log_entry.update({"jobs_cnt_running": len(jobs_running_dict)})
+        log_entry = {
+            **log_entry,
+            **__current_usage(worker_json, {**jobs_pending_dict, **jobs_running_dict}),
+        }
+        log_entry.update({"worker_cnt": worker_count})
+        log_entry.update({"worker_cnt_use": len(worker_in_use)})
+        log_entry.update({"worker_cnt_free": (worker_count - len(worker_in_use))})
+        log_entry.update({"worker_drain_cnt": len(worker_drain)})
+        log_entry.update({"worker_drain_cnt": len(worker_drain)})
+        log_entry.update({"w_change": worker_change})
+        log_entry.update({"reason": reason})
+        log_entry.update({"credit": credit_})
+        log_entry.update({"cluster_worker": len(cluster_worker_list)})
+        log_entry.update({"worker_credit_data": worker_credit_data})
     except NameError as e:
         print("job data from interface not usable, %s", e)
 
@@ -1123,8 +1248,8 @@ def __csv_writer(csv_file, log_data):
     :param log_data: write this new line
     :return:
     """
-    with open(csv_file, 'a', newline='', encoding='utf8') as csvfile:
-        f_writer = csv.writer(csvfile, delimiter=',')
+    with open(csv_file, "a", newline="", encoding="utf8") as csvfile:
+        f_writer = csv.writer(csvfile, delimiter=",")
         f_writer.writerow(log_data)
 
 
@@ -1136,7 +1261,7 @@ def __read_yaml_file(file_path):
     """
 
     try:
-        with open(file_path, 'r', encoding='utf8') as stream:
+        with open(file_path, "r", encoding="utf8") as stream:
             yaml_data = yaml.safe_load(stream)
         return yaml_data
     except yaml.YAMLError as exc:
@@ -1153,7 +1278,7 @@ def ___write_yaml_file(yaml_file_target, yaml_data):
     :param yaml_data:
     :return:
     """
-    with open(yaml_file_target, 'w+', encoding='utf8') as target:
+    with open(yaml_file_target, "w+", encoding="utf8") as target:
         try:
             yaml.dump(yaml_data, target)
         except yaml.YAMLError as exc:
@@ -1171,7 +1296,7 @@ def read_config_yaml():
     if not yaml_config:
         logger.error("can not read configuration file")
         return None
-    return yaml_config['scaling']
+    return yaml_config["scaling"]
 
 
 def read_cluster_id():
@@ -1181,31 +1306,37 @@ def read_cluster_id():
     :return: cluster id
     """
 
-    with open('/etc/hostname', 'r', encoding='utf8') as file:
+    with open("/etc/hostname", "r", encoding="utf8") as file:
         try:
-            cluster_id_ = file.read().rstrip().split('-')[2]
+            cluster_id_ = file.read().rstrip().split("-")[2]
         except (ValueError, IndexError):
-            logger.error("error: wrong cluster name \nexample: bibigrid-master-clusterID")
+            logger.error(
+                "error: wrong cluster name \nexample: bibigrid-master-clusterID"
+            )
             sys.exit(1)
     return cluster_id_
 
 
 def __get_portal_url_webapp():
-    return config_data['portal_link'] + '/portal/webapp/#/virtualmachines/clusterOverview'
+    return (
+        config_data["portal_link"] + "/portal/webapp/#/virtualmachines/clusterOverview"
+    )
 
 
 def get_wrong_password_msg():
-    logger.error(f"The password seems to be wrong. Please generate a new one "
-                 f"for the cluster on the Cluster Overview ({__get_portal_url_webapp()})"
-                 f" and register the password with 'autoscaling -p'.")
+    logger.error(
+        f"The password seems to be wrong. Please generate a new one "
+        f"for the cluster on the Cluster Overview ({__get_portal_url_webapp()})"
+        f" and register the password with 'autoscaling -p'."
+    )
 
 
 def __get_portal_url():
-    return config_data['portal_link'] + '/portal/public'
+    return config_data["portal_link"] + "/portal/public"
 
 
 def __get_portal_url_scaling():
-    return __get_portal_url() + '/clusters_scaling/'
+    return __get_portal_url() + "/clusters_scaling/"
 
 
 def get_url_scale_up():
@@ -1226,14 +1357,14 @@ def get_url_info_cluster():
     """
     :return: return portal api info url
     """
-    return __get_portal_url() + '/clusters/' + cluster_id + '/'
+    return __get_portal_url() + "/clusters/" + cluster_id + "/"
 
 
 def get_url_info_flavors():
     """
     :return: return portal api flavor info url
     """
-    return __get_portal_url() + '/clusters_scaling/' + cluster_id + '/usable_flavors/'
+    return __get_portal_url() + "/clusters_scaling/" + cluster_id + "/usable_flavors/"
 
 
 def reduce_flavor_memory(mem_gb):
@@ -1255,7 +1386,9 @@ def reduce_flavor_memory(mem_gb):
     return int(mem - sub)
 
 
-def translate_metrics_to_flavor(cpu, mem, tmp_disk, flavors_data, available_check, quiet):
+def translate_metrics_to_flavor(
+    cpu, mem, tmp_disk, flavors_data, available_check, quiet
+):
     """
     Select the flavor by cpu and memory.
     In the future, the server could select the flavor itself based on the required CPU and memory data.
@@ -1282,29 +1415,47 @@ def translate_metrics_to_flavor(cpu, mem, tmp_disk, flavors_data, available_chec
         logger.debug("flavors_data is empty")
         return None
     for fv_data in reversed(flavors_data):
-        if fv_data['flavor']['ephemeral_disk'] == 0 and config_mode['flavor_ephemeral']:
+        if fv_data["flavor"]["ephemeral_disk"] == 0 and config_mode["flavor_ephemeral"]:
             continue
 
-        if cpu <= int(fv_data['flavor']['vcpus']) and mem <= int(fv_data['available_memory']) \
-                and (int(tmp_disk) < int(fv_data['flavor']['tmp_disk']) or (
-                int(tmp_disk) == 0 and int(fv_data['flavor']['tmp_disk'] >= 0))):
+        if (
+            cpu <= int(fv_data["flavor"]["vcpus"])
+            and mem <= int(fv_data["available_memory"])
+            and (
+                int(tmp_disk) < int(fv_data["flavor"]["tmp_disk"])
+                or (int(tmp_disk) == 0 and int(fv_data["flavor"]["tmp_disk"] >= 0))
+            )
+        ):
             # job tmp disk must be lower than flavor tmp disk, exception if both zero
             # ex. flavor with 1TB tmp disk, jobs with 1TB are not scheduled, only jobs with 999M tmp disk
             found_flavor = True
 
             if not available_check:
                 return fv_data
-            if fv_data['usable_count'] > 0:
-                logger.debug("-> match found %s for cpu %d mem %d", fv_data['flavor']['name'], cpu, mem)
+            if fv_data["usable_count"] > 0:
+                logger.debug(
+                    "-> match found %s for cpu %d mem %d",
+                    fv_data["flavor"]["name"],
+                    cpu,
+                    mem,
+                )
                 return fv_data
             if not quiet:
                 logger.info(
                     "flavor %s found, but not available - searching for cpu %s memory %s tmp_disk %s",
-                    fv_data['flavor']['name'], cpu, mem, tmp_disk)
+                    fv_data["flavor"]["name"],
+                    cpu,
+                    mem,
+                    tmp_disk,
+                )
             break
     if not quiet and not found_flavor:
-        logger.warning("unable to find a suitable flavor - searching for cpu %s mem %s tmp_disk %s", cpu, mem,
-                       tmp_disk)
+        logger.warning(
+            "unable to find a suitable flavor - searching for cpu %s mem %s tmp_disk %s",
+            cpu,
+            mem,
+            tmp_disk,
+        )
 
     return None
 
@@ -1315,7 +1466,7 @@ def __sort_jobs(jobs_pending_dict):
     :param jobs_pending_dict: jobs as json dictionary object
     :return: sorted job list
     """
-    if config_data['resource_sorting']:
+    if config_data["resource_sorting"]:
         return __sort_job_by_resources(jobs_pending_dict)
     return __sort_job_priority(jobs_pending_dict)
 
@@ -1331,9 +1482,16 @@ def __sort_job_priority(jobs_dict):
     """
 
     # sort jobs by memory as secondary condition, first priority (scheduler)
-    priority_job_list = sorted(jobs_dict.items(),
-                               key=lambda k: (k[1]['priority'], k[1]['req_mem'], k[1]['req_cpus'], k[1]['tmp_disk']),
-                               reverse=True)
+    priority_job_list = sorted(
+        jobs_dict.items(),
+        key=lambda k: (
+            k[1]["priority"],
+            k[1]["req_mem"],
+            k[1]["req_cpus"],
+            k[1]["tmp_disk"],
+        ),
+        reverse=True,
+    )
     return priority_job_list
 
 
@@ -1347,8 +1505,11 @@ def __sort_job_by_resources(jobs_dict):
     :param jobs_dict: jobs as json dictionary object
     :return: job list sorted, jobs with high resources at the top
     """
-    sorted_job_list = sorted(jobs_dict.items(), key=lambda k: (k[1]['req_mem'], k[1]['req_cpus'], k[1]['tmp_disk']),
-                             reverse=True)
+    sorted_job_list = sorted(
+        jobs_dict.items(),
+        key=lambda k: (k[1]["req_mem"], k[1]["req_cpus"], k[1]["tmp_disk"]),
+        reverse=True,
+    )
     return sorted_job_list
 
 
@@ -1380,32 +1541,41 @@ def __receive_node_stats(node_dict, quiet):
             logger.error("%s not found, but dummy mode is active", NODE_DUMMY)
 
         for key, value in list(node_dict.items()):
-            if 'tmp_disk' in value:
-                tmp_disk = value['tmp_disk']
+            if "tmp_disk" in value:
+                tmp_disk = value["tmp_disk"]
             else:
                 tmp_disk = 0
             if not quiet:
-                logger.info("key: %s - state: %s cpus %s real_memory %s tmp_disk %s",
-                            json.dumps(key), json.dumps(value['state']),
-                            json.dumps(value['cpus']), json.dumps(value['real_memory']), tmp_disk)
+                logger.info(
+                    "key: %s - state: %s cpus %s real_memory %s tmp_disk %s",
+                    json.dumps(key),
+                    json.dumps(value["state"]),
+                    json.dumps(value["cpus"]),
+                    json.dumps(value["real_memory"]),
+                    tmp_disk,
+                )
                 # logger.debug(pformat(key))
                 # logger.debug(pformat(value))
-            if 'worker' in key:
+            if "worker" in key:
                 worker_count += 1
-                if NODE_DRAIN in value['state']:
+                if NODE_DRAIN in value["state"]:
                     worker_drain.append(key)
-                if (NODE_ALLOCATED in value['state']) or (NODE_MIX in value['state']):
+                if (NODE_ALLOCATED in value["state"]) or (NODE_MIX in value["state"]):
                     worker_in_use.append(key)
-                elif NODE_DRAIN in value['state'] and NODE_IDLE in value['state']:
+                elif NODE_DRAIN in value["state"] and NODE_IDLE in value["state"]:
                     worker_drain_idle.append(key)
-                elif (NODE_DOWN in value['state']) and NODE_IDLE not in value['state']:
+                elif (NODE_DOWN in value["state"]) and NODE_IDLE not in value["state"]:
                     logger.error("workers are in DOWN state")
             else:
                 del node_dict[key]
         if not quiet:
-            logger.info("nodes: I found %d worker - %d allocated, %d drain, drain+idle %s", worker_count,
-                        len(worker_in_use),
-                        len(worker_drain), worker_drain_idle)
+            logger.info(
+                "nodes: I found %d worker - %d allocated, %d drain, drain+idle %s",
+                worker_count,
+                len(worker_in_use),
+                len(worker_drain),
+                worker_drain_idle,
+            )
     else:
         if not quiet:
             logger.info("no nodes found, possible broken configuration!")
@@ -1454,7 +1624,7 @@ def receive_node_data_db(quiet):
 
 
 def node_filter(node_dict):
-    ignore_workers = config_data['ignore_workers']
+    ignore_workers = config_data["ignore_workers"]
     if ignore_workers:
         for key in node_dict.copy():
             if key in ignore_workers:
@@ -1463,12 +1633,12 @@ def node_filter(node_dict):
 
 
 def worker_filter(cluster_workers):
-    ignore_workers = config_data['ignore_workers']
+    ignore_workers = config_data["ignore_workers"]
 
     if ignore_workers:
         index = 0
         for key in cluster_workers:
-            if key['hostname'] in ignore_workers:
+            if key["hostname"] in ignore_workers:
                 cluster_workers.pop(index)
                 logger.debug("remove %s", key)
             index += 1
@@ -1492,9 +1662,9 @@ def receive_job_data():
         job_live_dict = scheduler_interface.job_data_live()
     if job_live_dict:
         for j_key, j_val in job_live_dict.items():
-            if j_val['state'] == JOB_PENDING:
+            if j_val["state"] == JOB_PENDING:
                 jobs_pending_dict.update({j_key: j_val})
-            elif j_val['state'] == JOB_RUNNING:
+            elif j_val["state"] == JOB_RUNNING:
                 jobs_running_dict.update({j_key: j_val})
     return jobs_pending_dict, jobs_running_dict
 
@@ -1508,12 +1678,13 @@ def receive_completed_job_data(days):
     jobs_dict = scheduler_interface.fetch_scheduler_job_data(days)
     if jobs_dict:
         for key, value in list(jobs_dict.items()):
-            if value['state'] != JOB_FINISHED:
+            if value["state"] != JOB_FINISHED:
                 del jobs_dict[key]
-        jobs_dict = dict(sorted(jobs_dict.items(), key=lambda k: (k[1]['end']),
-                                reverse=False))
+        jobs_dict = dict(
+            sorted(jobs_dict.items(), key=lambda k: (k[1]["end"]), reverse=False)
+        )
         for key, value in list(jobs_dict.items()):
-            print(value['end'])
+            print(value["end"])
     if jobs_dict is None:
         jobs_dict = {}
     return jobs_dict
@@ -1527,9 +1698,16 @@ def print_job_history(job_history):
 def print_job_data(job_data):
     if job_data:
         for key, value in list(job_data):
-            logger.info("id: %s - jobname %s - req_mem %s - req_cpus %s - priority %s - tmp_disk %s - elapsed %s",
-                        key, value['jobname'], value['req_mem'],
-                        value['req_cpus'], value['priority'], value['tmp_disk'], value['elapsed'])
+            logger.info(
+                "id: %s - jobname %s - req_mem %s - req_cpus %s - priority %s - tmp_disk %s - elapsed %s",
+                key,
+                value["jobname"],
+                value["req_mem"],
+                value["req_cpus"],
+                value["priority"],
+                value["tmp_disk"],
+                value["elapsed"],
+            )
     else:
         logger.info("No job found")
 
@@ -1545,9 +1723,12 @@ def get_cluster_data():
         if api error: None
     """
     try:
-        json_data = {"scaling": "scaling_up", "password": __get_cluster_password(), "version": VERSION}
-        response = requests.post(url=get_url_info_cluster(),
-                                 json=json_data)
+        json_data = {
+            "scaling": "scaling_up",
+            "password": __get_cluster_password(),
+            "version": VERSION,
+        }
+        response = requests.post(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
@@ -1563,7 +1744,7 @@ def get_cluster_data():
             automatic_update()
         else:
             logger.error("server error - unable to receive cluster data")
-            __csv_log_entry('E', 0, '16')
+            __csv_log_entry("E", 0, "16")
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
@@ -1590,16 +1771,28 @@ def get_cluster_workers(cluster_data):
     """
     cluster_workers = None
     if cluster_data:
-        cluster_workers = [data for data in cluster_data["active_worker"] if data is not None]
+        cluster_workers = [
+            data for data in cluster_data["active_worker"] if data is not None
+        ]
 
         for i, w_data in enumerate(cluster_workers):
-            cluster_workers[i].update({'memory_usable': reduce_flavor_memory(convert_mib_to_gb(w_data['memory']))})
-            if 'ephemerals' in w_data and w_data['ephemerals'] and 'size' in w_data['ephemerals'][0]:
-                cluster_workers[i].update({'tmp_disk': w_data['ephemerals'][0]['size']})
-            elif 'ephemeral_disk' in w_data:
-                cluster_workers[i].update({'tmp_disk': w_data['ephemeral_disk']})
+            cluster_workers[i].update(
+                {
+                    "memory_usable": reduce_flavor_memory(
+                        convert_mib_to_gb(w_data["memory"])
+                    )
+                }
+            )
+            if (
+                "ephemerals" in w_data
+                and w_data["ephemerals"]
+                and "size" in w_data["ephemerals"][0]
+            ):
+                cluster_workers[i].update({"tmp_disk": w_data["ephemerals"][0]["size"]})
+            elif "ephemeral_disk" in w_data:
+                cluster_workers[i].update({"tmp_disk": w_data["ephemeral_disk"]})
             else:
-                cluster_workers[i].update({'tmp_disk': 0})
+                cluster_workers[i].update({"tmp_disk": 0})
                 logger.error("ephemeral missing in cluster worker data")
         worker_filter(cluster_workers)
     return cluster_workers
@@ -1618,8 +1811,8 @@ def __get_flavor_available_count(flavor_data, flavor_name):
     """
     flavor_tmp = __get_flavor_by_name(flavor_data, flavor_name)
     if flavor_tmp:
-        if flavor_tmp['usable_count']:
-            return int(flavor_tmp['usable_count'])
+        if flavor_tmp["usable_count"]:
+            return int(flavor_tmp["usable_count"])
     return 0
 
 
@@ -1631,7 +1824,7 @@ def __get_flavor_by_name(flavor_data, flavor_name):
     :return: flavor data
     """
     for flavor_tmp in flavor_data:
-        if flavor_tmp['flavor']['name'] == flavor_name:
+        if flavor_tmp["flavor"]["name"] == flavor_name:
             return flavor_tmp
     return None
 
@@ -1687,7 +1880,7 @@ def usable_flavor_data(flavor_data):
     :param flavor_data:
     :return: number of usable flavors
     """
-    fv_cut = int(config_mode['flavor_restriction'])
+    fv_cut = int(config_mode["flavor_restriction"])
     # modify flavor count by current version
     flavors_available = len(flavor_data)
     logger.debug("flavors_available %s fv_cut %s", flavors_available, fv_cut)
@@ -1713,15 +1906,15 @@ def flavor_mod_gpu(flavors_data):
     """
     flavors_data_mod = []
     removed_flavors = []
-    flavor_gpu = int(config_mode['flavor_gpu'])
+    flavor_gpu = int(config_mode["flavor_gpu"])
     # modify flavors by gpu
     for fv_data in flavors_data:
         # use only gpu flavors
-        if flavor_gpu == FLAVOR_GPU_ONLY and fv_data['flavor']['gpu'] == 0:
-            removed_flavors.append(fv_data['flavor']['name'])
+        if flavor_gpu == FLAVOR_GPU_ONLY and fv_data["flavor"]["gpu"] == 0:
+            removed_flavors.append(fv_data["flavor"]["name"])
         # remove all gpu flavors
-        elif flavor_gpu == FLAVOR_GPU_REMOVE and fv_data['flavor']['gpu'] != 0:
-            removed_flavors.append(fv_data['flavor']['name'])
+        elif flavor_gpu == FLAVOR_GPU_REMOVE and fv_data["flavor"]["gpu"] != 0:
+            removed_flavors.append(fv_data["flavor"]["name"])
         else:
             flavors_data_mod.append(fv_data)
 
@@ -1740,14 +1933,23 @@ def get_usable_flavors(quiet, cut):
     :return: available flavors as json
     """
     try:
-        res = requests.post(url=get_url_info_flavors(),
-                            json={"password": __get_cluster_password(), "version": VERSION})
+        res = requests.post(
+            url=get_url_info_flavors(),
+            json={"password": __get_cluster_password(), "version": VERSION},
+        )
 
         if res.status_code == HTTP_CODE_OK:
             flavors_data = res.json()
-            flavors_data = sorted(flavors_data, key=lambda k: (k['flavor']['credits_costs_per_hour'],
-                                                               k['flavor']['ram_gib'], k['flavor']['vcpus'],
-                                                               k['flavor']['ephemeral_disk']), reverse=True)
+            flavors_data = sorted(
+                flavors_data,
+                key=lambda k: (
+                    k["flavor"]["credits_costs_per_hour"],
+                    k["flavor"]["ram_gib"],
+                    k["flavor"]["vcpus"],
+                    k["flavor"]["ephemeral_disk"],
+                ),
+                reverse=True,
+            )
             # logger.debug("flavorData %s", pformat(flavors_data))
 
             counter = 0
@@ -1759,32 +1961,44 @@ def get_usable_flavors(quiet, cut):
                 flavors_usable = len(flavors_data)
 
             for fd in flavors_data:
-                available_memory = reduce_flavor_memory(int(fd['flavor']['ram_gib']))
+                available_memory = reduce_flavor_memory(int(fd["flavor"]["ram_gib"]))
 
-                if 'ephemeral_disk' in fd['flavor']:
-                    fd['flavor']['tmp_disk'] = convert_gb_to_mib(fd['flavor']['ephemeral_disk'])
+                if "ephemeral_disk" in fd["flavor"]:
+                    fd["flavor"]["tmp_disk"] = convert_gb_to_mib(
+                        fd["flavor"]["ephemeral_disk"]
+                    )
                 else:
-                    fd['flavor']['tmp_disk'] = 0
+                    fd["flavor"]["tmp_disk"] = 0
                 val_tmp = []
                 for fd_item in fd.items():
                     val_tmp.append(fd_item)
-                val_tmp.append(('cnt', counter))
-                val_tmp.append(('available_memory', available_memory))
+                val_tmp.append(("cnt", counter))
+                val_tmp.append(("available_memory", available_memory))
                 # self selected high memory limit
-                if config_mode['limit_flavor_usage'] and fd['flavor']['type']['shortcut'] == FLAVOR_HIGH_MEM and \
-                        fd['flavor']['name'] in config_mode['limit_flavor_usage']:
-                    user_fv_limit = int(config_mode['limit_flavor_usage'][fd['flavor']['name']])
-                    available_to_use = min(user_fv_limit - fd['used_count'],
-                                           fd['real_available_count_openstack'], fd['available_count'])
+                if (
+                    config_mode["limit_flavor_usage"]
+                    and fd["flavor"]["type"]["shortcut"] == FLAVOR_HIGH_MEM
+                    and fd["flavor"]["name"] in config_mode["limit_flavor_usage"]
+                ):
+                    user_fv_limit = int(
+                        config_mode["limit_flavor_usage"][fd["flavor"]["name"]]
+                    )
+                    available_to_use = min(
+                        user_fv_limit - fd["used_count"],
+                        fd["real_available_count_openstack"],
+                        fd["available_count"],
+                    )
                 else:
-                    available_to_use = min(fd['real_available_count_openstack'], fd['available_count'])
-                val_tmp.append(('usable_count', available_to_use))
+                    available_to_use = min(
+                        fd["real_available_count_openstack"], fd["available_count"]
+                    )
+                val_tmp.append(("usable_count", available_to_use))
                 # --------------
                 if counter <= flavors_usable:
                     tmp_id = str(counter)
                     flavors_data_mod.append(dict(val_tmp))
                 else:
-                    tmp_id = 'X'
+                    tmp_id = "X"
                 if not quiet:
                     logger.info(
                         "fv: %s, %s,"
@@ -1794,12 +2008,12 @@ def get_usable_flavors(quiet, cut):
                         " ephemeral: %sGB,"
                         " credit: %s",
                         tmp_id,
-                        fd['flavor']['name'],
+                        fd["flavor"]["name"],
                         available_to_use,
-                        fd['flavor']['ram_gib'],
-                        fd['flavor']['vcpus'],
-                        fd['flavor']['ephemeral_disk'],
-                        fd['flavor']['credits_costs_per_hour'],
+                        fd["flavor"]["ram_gib"],
+                        fd["flavor"]["vcpus"],
+                        fd["flavor"]["ephemeral_disk"],
+                        fd["flavor"]["credits_costs_per_hour"],
                     )
                     logger.debug(
                         " project available %sx,"
@@ -1808,12 +2022,12 @@ def get_usable_flavors(quiet, cut):
                         " tmpDisk %s,"
                         " id %s"
                         " type: %s",
-                        fd['available_count'],
-                        fd['real_available_count_openstack'],
+                        fd["available_count"],
+                        fd["real_available_count_openstack"],
                         available_memory,
-                        fd['flavor']['tmp_disk'],
-                        fd['flavor']['id'],
-                        fd['flavor']['type']['shortcut'],
+                        fd["flavor"]["tmp_disk"],
+                        fd["flavor"]["id"],
+                        fd["flavor"]["type"]["shortcut"],
                     )
                 counter += 1
             return list(flavors_data_mod)
@@ -1825,13 +2039,15 @@ def get_usable_flavors(quiet, cut):
             logger.error("version missmatch error")
             automatic_update()
         else:
-            logger.error("server error - unable to receive flavor data, code %s", res.status_code)
-            __csv_log_entry('E', 0, '15')
+            logger.error(
+                "server error - unable to receive flavor data, code %s", res.status_code
+            )
+            __csv_log_entry("E", 0, "15")
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
-        __csv_log_entry('E', 0, '14')
+        __csv_log_entry("E", 0, "14")
         if e.response.status_code == HTTP_CODE_OUTDATED:
             logger.error("version missmatch error")
             automatic_update()
@@ -1853,14 +2069,14 @@ def __get_file(read_file):
     :return: file content as json
     """
     try:
-        with open(read_file, 'r', encoding='utf-8') as f:
+        with open(read_file, "r", encoding="utf-8") as f:
             file_json = json.load(f)
         return file_json
     except IOError:
         logger.error("Error: file does not exist %s", read_file)
         return None
     except ValueError:
-        logger.error('Decoding JSON data failed from file %s', read_file)
+        logger.error("Decoding JSON data failed from file %s", read_file)
         return None
 
 
@@ -1871,7 +2087,7 @@ def __save_file(save_file, content):
     :return: file content as json
     """
     try:
-        with open(save_file, 'w', encoding='utf-8') as f:
+        with open(save_file, "w", encoding="utf-8") as f:
             json.dump(content, f, ensure_ascii=False, indent=4)
             f.flush()
     except IOError:
@@ -1886,7 +2102,7 @@ def __get_cluster_password():
     :return: "CLUSTER_PASSWORD"
     """
     pw_json = __get_file(CLUSTER_PASSWORD_FILE)
-    cluster_pw = pw_json['password']
+    cluster_pw = pw_json["password"]
     logger.debug("pw_json: %s", cluster_pw)
     return cluster_pw
 
@@ -1897,7 +2113,7 @@ def __set_cluster_password():
     :return:
     """
     password_ = input("enter cluster password (copy&paste): ")
-    tmp_pw = {'password': password_}
+    tmp_pw = {"password": password_}
     __save_file(CLUSTER_PASSWORD_FILE, tmp_pw)
 
 
@@ -1922,20 +2138,29 @@ def __worker_states():
 
     if cluster_workers is not None:
         for c_worker in cluster_workers:
-            logger.debug("hostname: '%s' status: '%s'", c_worker['hostname'], c_worker['status'])
-            if NODE_DOWN in c_worker['status']:
-                worker_down.append(c_worker['hostname'])
-            elif WORKER_ERROR == c_worker['status']:
-                logger.error("ERROR %s", c_worker['hostname'])
-                worker_error.append(c_worker['hostname'])
-            elif WORKER_FAILED in c_worker['status']:
-                logger.error("FAILED workers, not recoverable %s", c_worker['hostname'])
+            logger.debug(
+                "hostname: '%s' status: '%s'", c_worker["hostname"], c_worker["status"]
+            )
+            if NODE_DOWN in c_worker["status"]:
+                worker_down.append(c_worker["hostname"])
+            elif WORKER_ERROR == c_worker["status"]:
+                logger.error("ERROR %s", c_worker["hostname"])
+                worker_error.append(c_worker["hostname"])
+            elif WORKER_FAILED in c_worker["status"]:
+                logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
                 sys.exit(1)
-            elif WORKER_ACTIVE == c_worker['status']:
-                worker_active.append(c_worker['hostname'])
+            elif WORKER_ACTIVE == c_worker["status"]:
+                worker_active.append(c_worker["hostname"])
             else:
-                worker_unknown.append(c_worker['hostname'])
-    return worker_active, worker_unknown, worker_error, worker_down, cluster_workers, cluster_data
+                worker_unknown.append(c_worker["hostname"])
+    return (
+        worker_active,
+        worker_unknown,
+        worker_error,
+        worker_down,
+        cluster_workers,
+        cluster_data,
+    )
 
 
 def check_workers(rescale, worker_count, dummy_worker):
@@ -1953,53 +2178,74 @@ def check_workers(rescale, worker_count, dummy_worker):
     max_time = 1200
     no_error = True
     max_wait_cnt = 0
-    service_frequency = int(config_mode['service_frequency'])
+    service_frequency = int(config_mode["service_frequency"])
     while not worker_ready:
-        worker_active, worker_unknown, worker_error, worker_down, cluster_workers, cluster_data = __worker_states()
+        (
+            worker_active,
+            worker_unknown,
+            worker_error,
+            worker_down,
+            cluster_workers,
+            cluster_data,
+        ) = __worker_states()
 
         if cluster_data is None:
-            logger.error("unable to receive cluster data ... try again in %s seconds",
-                         service_frequency * WAIT_CLUSTER_SCALING)
+            logger.error(
+                "unable to receive cluster data ... try again in %s seconds",
+                service_frequency * WAIT_CLUSTER_SCALING,
+            )
             time.sleep(service_frequency * WAIT_CLUSTER_SCALING)
             continue
         cluster_count_live = len(cluster_workers)
-        logger.info("workers: active %s, error %s, down %s, not ready %s, error list: %s.",
-                    len(worker_active),
-                    len(worker_error), len(worker_down),
-                    len(worker_unknown), worker_error)
+        logger.info(
+            "workers: active %s, error %s, down %s, not ready %s, error list: %s.",
+            len(worker_active),
+            len(worker_error),
+            len(worker_down),
+            len(worker_unknown),
+            worker_error,
+        )
         logger.debug("workers expected %s", worker_count)
-        elapsed_time = (time.time() - start_time)
+        elapsed_time = time.time() - start_time
         if cluster_count_live < worker_count and WAIT_CLUSTER_SCALING > max_wait_cnt:
-            logger.debug("increase wait time for cloud api %s, wait until %s workers are listed, current %s",
-                         max_wait_cnt, worker_count, cluster_count_live)
+            logger.debug(
+                "increase wait time for cloud api %s, wait until %s workers are listed, current %s",
+                max_wait_cnt,
+                worker_count,
+                cluster_count_live,
+            )
             time.sleep(WAIT_CLUSTER_SCALING / 2)
             max_wait_cnt += 1
         elif elapsed_time > max_time and worker_unknown:
             logger.error("workers are stuck: %s", worker_unknown)
-            cluster_scale_down_specific_self_check(worker_unknown + worker_error, rescale, dummy_worker)
+            cluster_scale_down_specific_self_check(
+                worker_unknown + worker_error, rescale, dummy_worker
+            )
             worker_count -= len(worker_unknown + worker_error)
             no_error = False
-            __csv_log_entry('E', len(worker_unknown + worker_error), '11')
+            __csv_log_entry("E", len(worker_unknown + worker_error), "11")
         elif worker_error and not worker_unknown:
             logger.error("scale down error workers: %s", worker_error)
             cluster_scale_down_specific_self_check(worker_error, rescale, dummy_worker)
             worker_count -= len(worker_error)
             no_error = False
-            __csv_log_entry('E', len(worker_error), '12')
+            __csv_log_entry("E", len(worker_error), "12")
         elif elapsed_time > max_time and worker_down:
             logger.error("scale down workers are down: %s", worker_down)
             cluster_scale_down_specific_self_check(worker_down, rescale, dummy_worker)
             worker_count -= len(worker_down)
             no_error = False
-            __csv_log_entry('E', len(worker_down), '17')
+            __csv_log_entry("E", len(worker_down), "17")
         elif not worker_unknown and not worker_error:
             logger.info("ALL WORKERS ACTIVE!")
             if cluster_count_live < worker_count:
                 logger.warning("higher number of workers expected!")
             return no_error, cluster_data
         else:
-            logger.info("at least one worker is not 'ACTIVE', wait ... %d seconds",
-                        WAIT_CLUSTER_SCALING)
+            logger.info(
+                "at least one worker is not 'ACTIVE', wait ... %d seconds",
+                WAIT_CLUSTER_SCALING,
+            )
             time.sleep(WAIT_CLUSTER_SCALING)
 
 
@@ -2015,28 +2261,39 @@ def __generate_downscale_list(worker_data, count, jobs_dict):
     """
     worker_remove = []
     worker_idle = []
-    worker_cool_down = int(config_mode['worker_cool_down'])
+    worker_cool_down = int(config_mode["worker_cool_down"])
     if count == 0:
         return worker_remove
     # sort workers by resources, memory 'real_memory' False low mem first - True high first
     # workaround - required, if the most capable worker should remain active
-    worker_mem_sort = sorted(worker_data.items(), key=lambda k: (k[1]['real_memory']), reverse=False)
+    worker_mem_sort = sorted(
+        worker_data.items(), key=lambda k: (k[1]["real_memory"]), reverse=False
+    )
     for key, value in worker_mem_sort:
-        if 'worker' in key and count > 0:
+        if "worker" in key and count > 0:
             # check for broken workers first
-            if (NODE_ALLOCATED not in value['state']) and (NODE_MIX not in value['state']) and (
-                    NODE_IDLE not in value['state']):
-                logger.error("worker is in unknown state: key %s  value %s", key, value['state'])
+            if (
+                (NODE_ALLOCATED not in value["state"])
+                and (NODE_MIX not in value["state"])
+                and (NODE_IDLE not in value["state"])
+            ):
+                logger.error(
+                    "worker is in unknown state: key %s  value %s", key, value["state"]
+                )
                 worker_remove.append(key)
-            elif (NODE_ALLOCATED not in value['state']) and (NODE_MIX not in value['state']) and count > 0:
-                if NODE_DRAIN in value['state'] and NODE_IDLE in value['state']:
+            elif (
+                (NODE_ALLOCATED not in value["state"])
+                and (NODE_MIX not in value["state"])
+                and count > 0
+            ):
+                if NODE_DRAIN in value["state"] and NODE_IDLE in value["state"]:
                     worker_remove.append(key)
                     count -= 1
-                elif NODE_IDLE in value['state']:
+                elif NODE_IDLE in value["state"]:
                     worker_idle.append(key)
                     count -= 1
                 else:
-                    logger.debug("unable to include %s %s", key, value['state'])
+                    logger.debug("unable to include %s %s", key, value["state"])
 
     logger.debug("worker_idle %s", worker_idle)
     logger.debug("worker_remove %s", worker_remove)
@@ -2047,7 +2304,9 @@ def __generate_downscale_list(worker_data, count, jobs_dict):
         logger.debug("frequency worker check %s", worker_idle)
     if worker_idle and jobs_dict:
         # test if idle workers are capable for pending jobs
-        _, _, _, worker_useless = __current_workers_capable(jobs_dict.items(), worker_data, worker_idle)
+        _, _, _, worker_useless = __current_workers_capable(
+            jobs_dict.items(), worker_data, worker_idle
+        )
         worker_idle = [x for x in worker_idle if x in worker_useless]
         logger.debug("worker_idle not capable %s", worker_idle)
     worker_remove = worker_remove + worker_idle
@@ -2060,8 +2319,15 @@ def __generate_downscale_list(worker_data, count, jobs_dict):
     return worker_remove
 
 
-def __drain_worker_check(worker_high, w_value, w_fv, flavor_data, jobs_history_dict_rev,
-                         jobs_running_dict, cluster_worker):
+def __drain_worker_check(
+    worker_high,
+    w_value,
+    w_fv,
+    flavor_data,
+    jobs_history_dict_rev,
+    jobs_running_dict,
+    cluster_worker,
+):
     """
     Check the elapsed time since the last worker usage with the required flavor according to job history.
     Delay drain active workers with higher flavors as required.
@@ -2071,38 +2337,65 @@ def __drain_worker_check(worker_high, w_value, w_fv, flavor_data, jobs_history_d
     :return: worker list
     """
 
-    wait_time = int(config_mode['drain_delay'])  # config_mode['drain_frequency']
+    wait_time = int(config_mode["drain_delay"])  # config_mode['drain_frequency']
     if wait_time > 0:
         if not jobs_history_dict_rev:
             jobs_history_dict_rev = sorted(
-                list(receive_completed_job_data(1).items()), key=lambda k: (k[1]['end'], k[1]['req_mem']),
-                reverse=True)
+                list(receive_completed_job_data(1).items()),
+                key=lambda k: (k[1]["end"], k[1]["req_mem"]),
+                reverse=True,
+            )
         time_now = __get_time()
         if not jobs_history_dict_rev:
             return
         for _, value in jobs_running_dict.items():
-            if 'nodes' in value and worker_high in value['nodes']:
-                fv_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                                     flavor_data, False, False)
+            if "nodes" in value and worker_high in value["nodes"]:
+                fv_tmp = translate_metrics_to_flavor(
+                    value["req_cpus"],
+                    value["req_mem"],
+                    value["tmp_disk"],
+                    flavor_data,
+                    False,
+                    False,
+                )
                 if not __compare_worker_high_vs_flavor(fv_tmp, w_value):
-                    logger.debug("worker still in use with required flavor:  %s time_now %s, key %s",
-                                 wait_time, time_now, worker_high)
+                    logger.debug(
+                        "worker still in use with required flavor:  %s time_now %s, key %s",
+                        wait_time,
+                        time_now,
+                        worker_high,
+                    )
                     return False
         logger.debug("worker %s not in use with suitable job", worker_high)
         for _, value in jobs_history_dict_rev:
-            elapsed_time = float(time_now) - float(value['end'])
-            if 'nodes' in value and worker_high in value['nodes']:
+            elapsed_time = float(time_now) - float(value["end"])
+            if "nodes" in value and worker_high in value["nodes"]:
                 if elapsed_time < wait_time:
-                    fv_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                                         flavor_data, False, False)
+                    fv_tmp = translate_metrics_to_flavor(
+                        value["req_cpus"],
+                        value["req_mem"],
+                        value["tmp_disk"],
+                        flavor_data,
+                        False,
+                        False,
+                    )
                     if not __compare_worker_high_vs_flavor(fv_tmp, w_value):
                         logger.debug(
                             "block drain, last high flavor usage was: %s wait_time %s time_now %s job_end %s, key %s",
-                            elapsed_time, wait_time,
-                            time_now, value['end'], worker_high)
+                            elapsed_time,
+                            wait_time,
+                            time_now,
+                            value["end"],
+                            worker_high,
+                        )
                         return False
-                logger.debug("worker %s elapsed %s name %s, nodes %s", worker_high, elapsed_time, value['jobname'],
-                             value['nodes'])
+                logger.debug(
+                    "worker %s elapsed %s name %s, nodes %s",
+                    worker_high,
+                    elapsed_time,
+                    value["jobname"],
+                    value["nodes"],
+                )
                 break
     if wait_time < 0 and w_fv:
         # negative number, skip drain for worker
@@ -2111,19 +2404,31 @@ def __drain_worker_check(worker_high, w_value, w_fv, flavor_data, jobs_history_d
 
         for w_key, _ in worker_json.items():
             w_cd_tmp = worker_to_cluster_data(w_key, cluster_worker)
-            if w_cd_tmp and w_cd_tmp['flavor'] == w_fv['flavor']['name']:
+            if w_cd_tmp and w_cd_tmp["flavor"] == w_fv["flavor"]["name"]:
                 workers_with_flavor.append(w_key)
-                logger.debug("active worker %s with flavor %s", w_key, w_cd_tmp['flavor'])
-        workers_with_flavor_drain = [x for x in workers_with_flavor if x in worker_drain_list]
-        workers_remaining = __division_round(len(workers_with_flavor) - abs(wait_time), 2) - (
-            len(workers_with_flavor_drain))
-        logger.debug("workers_remaining: %s, workers_with_flavor_drain: %s, worker_drain_list %s", workers_remaining,
-                     workers_with_flavor_drain, worker_drain_list)
+                logger.debug(
+                    "active worker %s with flavor %s", w_key, w_cd_tmp["flavor"]
+                )
+        workers_with_flavor_drain = [
+            x for x in workers_with_flavor if x in worker_drain_list
+        ]
+        workers_remaining = __division_round(
+            len(workers_with_flavor) - abs(wait_time), 2
+        ) - (len(workers_with_flavor_drain))
+        logger.debug(
+            "workers_remaining: %s, workers_with_flavor_drain: %s, worker_drain_list %s",
+            workers_remaining,
+            workers_with_flavor_drain,
+            worker_drain_list,
+        )
         if workers_remaining <= 0:
-            logger.debug("skip drain for worker: %s, workers_with_flavor %s: %s, worker_drain_list %s",
-                         worker_high,
-                         len(workers_with_flavor),
-                         workers_with_flavor, worker_drain_list)
+            logger.debug(
+                "skip drain for worker: %s, workers_with_flavor %s: %s, worker_drain_list %s",
+                worker_high,
+                len(workers_with_flavor),
+                workers_with_flavor,
+                worker_drain_list,
+            )
             return False
     return True
 
@@ -2136,14 +2441,17 @@ def __scale_frequency_worker_check(worker_useless):
     :return: worker list
     """
     jobs_history_dict_rev = sorted(
-        list(receive_completed_job_data(1).items()), key=lambda k: (k[1]['end'], k[1]['req_mem']), reverse=True)
+        list(receive_completed_job_data(1).items()),
+        key=lambda k: (k[1]["end"], k[1]["req_mem"]),
+        reverse=True,
+    )
     time_now = __get_time()
-    wait_time = int(config_mode['worker_cool_down'])
+    wait_time = int(config_mode["worker_cool_down"])
     worker_prevent_frequency = []
     for i in worker_useless:
         for _, value in jobs_history_dict_rev:
-            elapsed_time = float(time_now) - float(value['end'])
-            if 'nodes' in value and i in value['nodes']:
+            elapsed_time = float(time_now) - float(value["end"])
+            if "nodes" in value and i in value["nodes"]:
                 if elapsed_time < wait_time:
                     worker_prevent_frequency.append(i)
                 break
@@ -2163,7 +2471,7 @@ def __calculate_scale_down_value(worker_count, worker_free, state):
 
     if worker_count > DOWNSCALE_LIMIT:
         if worker_free < worker_count and not state == ScaleState.DOWN_UP:
-            return round(worker_free * config_mode['scale_force'], 0)
+            return round(worker_free * config_mode["scale_force"], 0)
 
         max_scale_down = worker_free - DOWNSCALE_LIMIT
         if max_scale_down > 0:
@@ -2179,13 +2487,13 @@ def __worker_match_to_job(j_value, w_value):
     found_match = False
 
     try:
-        w_mem_tmp = int(w_value['real_memory'])
-        w_cpu = int(w_value['cpus'])
-        w_tmp_disk = int(w_value['tmp_disk'])
+        w_mem_tmp = int(w_value["real_memory"])
+        w_cpu = int(w_value["cpus"])
+        w_tmp_disk = int(w_value["tmp_disk"])
 
-        j_cpu = int(j_value['req_cpus'])
-        j_mem = int(j_value['req_mem'])
-        j_tmp_disk = int(j_value['tmp_disk'])
+        j_cpu = int(j_value["req_cpus"])
+        j_mem = int(j_value["req_mem"])
+        j_tmp_disk = int(j_value["tmp_disk"])
         if j_mem <= w_mem_tmp and j_cpu <= w_cpu:
             if j_tmp_disk < w_tmp_disk or j_tmp_disk == 0:
                 found_match = True
@@ -2218,14 +2526,14 @@ def __current_workers_capable(jobs_pending_dict, worker_json, worker_to_check):
     logger.debug("worker_all %s", worker_all)
     worker_useless = worker_all.copy()
     for _, j_value in jobs_pending_dict:
-        if j_value['state'] == JOB_PENDING:
+        if j_value["state"] == JOB_PENDING:
             found_pending_jobs = True
             found_match = False
             for w_key, w_value in worker_json.items():
                 if w_key not in worker_all:
                     logger.debug("skip %s", w_key)
                     continue
-                if 'worker' not in w_key:
+                if "worker" not in w_key:
                     continue
                 if __worker_match_to_job(j_value, w_value):
                     if w_key in worker_useless:
@@ -2259,14 +2567,14 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
     """
 
     flavor_depth = []
-    flavor_max_depth = int(config_mode['flavor_depth'])
+    flavor_max_depth = int(config_mode["flavor_depth"])
     depth_limit = len(flavor_data)
     if flavor_max_depth > 0 and flavor_max_depth > depth_limit:
         flavor_max_depth = depth_limit
     if flavor_max_depth in (DEPTH_MULTI, DEPTH_MULTI_SINGLE):
         depth_limit = len(flavor_data)
         logger.debug("flavor_depth is set to all %s flavors", depth_limit)
-    elif flavor_max_depth == DEPTH_MAX_WORKER or config_mode['flavor_default']:
+    elif flavor_max_depth == DEPTH_MAX_WORKER or config_mode["flavor_default"]:
         logger.debug("flavor_depth is set to single flavor")
         flavor_depth.append(__worker_no_flavor_separation(job_priority, flavor_data))
         return flavor_depth
@@ -2284,28 +2592,47 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
         available_check = False
 
     for key, value in job_priority:
-        if value['state'] == JOB_PENDING:
-            flavor_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                                     flavor_data, available_check, False)
+        if value["state"] == JOB_PENDING:
+            flavor_tmp = translate_metrics_to_flavor(
+                value["req_cpus"],
+                value["req_mem"],
+                value["tmp_disk"],
+                flavor_data,
+                available_check,
+                False,
+            )
 
             if flavor_tmp is None:
-                logger.debug("unavailable flavor for job %s cpu %s mem %s disk %s",
-                             value['jobname'], value['req_cpus'], value['req_mem'], value['tmp_disk'])
+                logger.debug(
+                    "unavailable flavor for job %s cpu %s mem %s disk %s",
+                    value["jobname"],
+                    value["req_cpus"],
+                    value["req_mem"],
+                    value["tmp_disk"],
+                )
                 missing_flavors = True
                 # jump to the next job with available flavors
             elif flavor_next is None:
                 flavor_next = flavor_tmp
-                logger.debug("flavor_tmp_current is None: %s counter: %s", flavor_tmp, counter)
+                logger.debug(
+                    "flavor_tmp_current is None: %s counter: %s", flavor_tmp, counter
+                )
                 counter += 1
                 flavor_job_list.append((key, value))
-            elif flavor_next['flavor']['name'] == flavor_tmp['flavor']['name']:
+            elif flavor_next["flavor"]["name"] == flavor_tmp["flavor"]["name"]:
                 counter += 1
                 flavor_job_list.append((key, value))
-            elif flavor_next['flavor']['name'] != flavor_tmp['flavor']['name'] and flavor_cnt < depth_limit:
+            elif (
+                flavor_next["flavor"]["name"] != flavor_tmp["flavor"]["name"]
+                and flavor_cnt < depth_limit
+            ):
                 flavor_cnt += 1
                 if counter > 0 and flavor_next:
                     flavor_depth.append((counter, flavor_next, flavor_job_list))
-                logger.debug("switch to next flavor, previous flavor %s", flavor_next['flavor']['name'])
+                logger.debug(
+                    "switch to next flavor, previous flavor %s",
+                    flavor_next["flavor"]["name"],
+                )
                 counter = 1
                 flavor_next = flavor_tmp
                 flavor_job_list = [(key, value)]
@@ -2316,7 +2643,7 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
         flavor_depth.append((counter, flavor_next, flavor_job_list))
     if missing_flavors:
         logger.info("insufficient resources")
-        __csv_log_entry('L', None, 0)
+        __csv_log_entry("L", None, 0)
 
     if LOG_LEVEL == logging.DEBUG:
         # print result snapshot for debug
@@ -2324,13 +2651,23 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
         for counter, flavor, j_list in flavor_depth:
             logger.debug("\n---------------------------\n")
             if len(j_list) > 0:
-                logger.debug("flavor_tmp_current %s counter: %s priority first: %s last: %s",
-                             flavor['flavor']['name'], counter,
-                             pformat(j_list[0][1]['priority']), pformat(j_list[-1][1]['priority']))
+                logger.debug(
+                    "flavor_tmp_current %s counter: %s priority first: %s last: %s",
+                    flavor["flavor"]["name"],
+                    counter,
+                    pformat(j_list[0][1]["priority"]),
+                    pformat(j_list[-1][1]["priority"]),
+                )
                 for key, value in j_list:
-                    logger.debug("JOB level %s: jobname %s - req_mem %s - req_cpus %s - priority %s - tmp_disk %s",
-                                 count_, value['jobname'], value['req_mem'],
-                                 value['req_cpus'], value['priority'], value['tmp_disk'])
+                    logger.debug(
+                        "JOB level %s: jobname %s - req_mem %s - req_cpus %s - priority %s - tmp_disk %s",
+                        count_,
+                        value["jobname"],
+                        value["req_mem"],
+                        value["req_cpus"],
+                        value["priority"],
+                        value["tmp_disk"],
+                    )
                 logger.debug("\n---------------------------\n")
             count_ += 1
     return flavor_depth
@@ -2349,21 +2686,36 @@ def __worker_no_flavor_separation(job_priority, flavor_data):
     job_list = []
     flavor_next = None
     for key, value in job_priority:
-        if value['state'] == JOB_PENDING:
-            flavor_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                                     flavor_data, True, False)
+        if value["state"] == JOB_PENDING:
+            flavor_tmp = translate_metrics_to_flavor(
+                value["req_cpus"],
+                value["req_mem"],
+                value["tmp_disk"],
+                flavor_data,
+                True,
+                False,
+            )
 
             if flavor_tmp is None:
-                logger.debug("unavailable flavor for job %s cpu %s mem %s disk %s",
-                             value['jobname'], value['req_cpus'], value['req_mem'], value['tmp_disk'])
+                logger.debug(
+                    "unavailable flavor for job %s cpu %s mem %s disk %s",
+                    value["jobname"],
+                    value["req_cpus"],
+                    value["req_mem"],
+                    value["tmp_disk"],
+                )
                 continue
             if flavor_next is None:
                 flavor_next = flavor_tmp
-            elif flavor_next['flavor']['name'] != flavor_tmp['flavor']['name']:
-                logger.debug("flavor_next %s %s, flavor_tmp %s %s",
-                             flavor_next['flavor']['name'], flavor_next['cnt'],
-                             flavor_tmp['flavor']['name'], flavor_tmp['cnt'])
-                if flavor_tmp['cnt'] < flavor_next['cnt']:
+            elif flavor_next["flavor"]["name"] != flavor_tmp["flavor"]["name"]:
+                logger.debug(
+                    "flavor_next %s %s, flavor_tmp %s %s",
+                    flavor_next["flavor"]["name"],
+                    flavor_next["cnt"],
+                    flavor_tmp["flavor"]["name"],
+                    flavor_tmp["cnt"],
+                )
+                if flavor_tmp["cnt"] < flavor_next["cnt"]:
                     flavor_next = flavor_tmp
             job_list.append((key, value))
     return len(job_list), flavor_next, job_list
@@ -2383,11 +2735,13 @@ def __compare_flavor_max(fv_max, fv_min):
     if not fv_min and fv_max:
         return True
 
-    if fv_max['flavor']['ram_gib'] >= fv_min['flavor']['ram_gib'] and \
-            fv_max['flavor']['vcpus'] >= fv_min['flavor']['vcpus']:
-        if config_mode['flavor_ephemeral']:
+    if (
+        fv_max["flavor"]["ram_gib"] >= fv_min["flavor"]["ram_gib"]
+        and fv_max["flavor"]["vcpus"] >= fv_min["flavor"]["vcpus"]
+    ):
+        if config_mode["flavor_ephemeral"]:
             return True
-        if fv_max['flavor']['ephemeral_disk'] >= fv_min['flavor']['ephemeral_disk']:
+        if fv_max["flavor"]["ephemeral_disk"] >= fv_min["flavor"]["ephemeral_disk"]:
             return True
     return False
 
@@ -2399,14 +2753,13 @@ def __compare_worker_high_vs_flavor(fv_tmp, w_value):
     :param w_value: worker values as json object
     :return: boolean
     """
-    fv_mem = int(fv_tmp['available_memory'])
-    w_mem_tmp = int(w_value['real_memory'])
+    fv_mem = int(fv_tmp["available_memory"])
+    w_mem_tmp = int(w_value["real_memory"])
 
-    if fv_mem < w_mem_tmp and \
-            fv_tmp['flavor']['vcpus'] <= w_value['cpus']:
-        if config_mode['flavor_ephemeral']:
+    if fv_mem < w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["cpus"]:
+        if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp['flavor']['tmp_disk']) <= int(w_value['tmp_disk']):
+        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["tmp_disk"]):
             return True
     return False
 
@@ -2418,14 +2771,13 @@ def __compare_worker_meet_flavor(fv_tmp, w_value):
     :param w_value: worker values as json object
     :return: boolean
     """
-    fv_mem = int(fv_tmp['available_memory'])
-    w_mem_tmp = int(w_value['real_memory'])
+    fv_mem = int(fv_tmp["available_memory"])
+    w_mem_tmp = int(w_value["real_memory"])
 
-    if fv_mem <= w_mem_tmp and \
-            fv_tmp['flavor']['vcpus'] <= w_value['cpus']:
-        if config_mode['flavor_ephemeral']:
+    if fv_mem <= w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["cpus"]:
+        if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp['flavor']['tmp_disk']) <= int(w_value['tmp_disk']):
+        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["tmp_disk"]):
             return True
     return False
 
@@ -2437,18 +2789,24 @@ def __compare_worker_match_flavor(fv_tmp, w_value):
     :param w_value: worker values as json object
     :return: boolean
     """
-    fv_mem = int(fv_tmp['available_memory'])
-    w_mem_tmp = int(w_value['real_memory'])
-    if (fv_mem == w_mem_tmp) and \
-            int(fv_tmp['flavor']['vcpus']) >= int(w_value['cpus']):
-        if config_mode['flavor_ephemeral']:
+    fv_mem = int(fv_tmp["available_memory"])
+    w_mem_tmp = int(w_value["real_memory"])
+    if (fv_mem == w_mem_tmp) and int(fv_tmp["flavor"]["vcpus"]) >= int(w_value["cpus"]):
+        if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp['flavor']['tmp_disk']) >= int(w_value['tmp_disk']):
+        if int(fv_tmp["flavor"]["tmp_disk"]) >= int(w_value["tmp_disk"]):
             return True
     return False
 
 
-def set_nodes_to_drain(jobs_pending_dict, worker_json, flavor_data, cluster_worker, jobs_running_dict, dummy_worker):
+def set_nodes_to_drain(
+    jobs_pending_dict,
+    worker_json,
+    flavor_data,
+    cluster_worker,
+    jobs_running_dict,
+    dummy_worker,
+):
     """
     Calculate the largest flavor/worker for pending jobs.
     Check the workers:
@@ -2476,11 +2834,23 @@ def set_nodes_to_drain(jobs_pending_dict, worker_json, flavor_data, cluster_work
     # maximum required flavor for pending jobs
     for _, value in jobs_pending_dict.items():
 
-        if value['state'] == JOB_PENDING:
-            logger.debug("set_nodes_to_drain: job id %s, cpu %s, mem %s, disk %s, state %s",
-                         value['jobname'], value['req_cpus'], value['req_mem'], value['tmp_disk'], value['state'])
-            fv_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                                 flavor_data, False, False)
+        if value["state"] == JOB_PENDING:
+            logger.debug(
+                "set_nodes_to_drain: job id %s, cpu %s, mem %s, disk %s, state %s",
+                value["jobname"],
+                value["req_cpus"],
+                value["req_mem"],
+                value["tmp_disk"],
+                value["state"],
+            )
+            fv_tmp = translate_metrics_to_flavor(
+                value["req_cpus"],
+                value["req_mem"],
+                value["tmp_disk"],
+                flavor_data,
+                False,
+                False,
+            )
             if fv_tmp:
                 if __compare_flavor_max(fv_tmp, fv_max):
                     fv_max = fv_tmp
@@ -2489,46 +2859,76 @@ def set_nodes_to_drain(jobs_pending_dict, worker_json, flavor_data, cluster_work
                 elif __compare_flavor_max(fv_min, fv_tmp):
                     fv_min = fv_tmp
             else:
-                logger.debug("no suitable flavor available for job %s - maybe after downscale",
-                             int(value['req_mem']))
+                logger.debug(
+                    "no suitable flavor available for job %s - maybe after downscale",
+                    int(value["req_mem"]),
+                )
                 missing_flavors = True
 
-    logger.debug("set_nodes_to_drain max: %s, ram %s, cpu %s, disk %s",
-                 fv_max['flavor']['name'], fv_max['flavor']['ram_gib'],
-                 fv_max['flavor']['vcpus'], fv_max['flavor']['tmp_disk'])
+    logger.debug(
+        "set_nodes_to_drain max: %s, ram %s, cpu %s, disk %s",
+        fv_max["flavor"]["name"],
+        fv_max["flavor"]["ram_gib"],
+        fv_max["flavor"]["vcpus"],
+        fv_max["flavor"]["tmp_disk"],
+    )
     if not fv_max:
         return worker_data_changed
     for w_key, w_value in worker_json.items():
-        if 'worker' in w_key:
+        if "worker" in w_key:
             w_cd = worker_to_cluster_data(w_key, cluster_worker)
             w_fv = cluster_worker_to_flavor(flavor_data, w_cd)
-            if config_mode['drain_only_hmf']:
+            if config_mode["drain_only_hmf"]:
                 if w_fv:
-                    if w_fv['flavor']['type']['shortcut'] != FLAVOR_HIGH_MEM:
-                        logger.debug("no drain for %s flavor %s, worker %s, continue ... drain only %s",
-                                     w_fv['flavor']['type']['shortcut'],
-                                     w_fv['flavor']['name'], w_key, FLAVOR_HIGH_MEM)
+                    if w_fv["flavor"]["type"]["shortcut"] != FLAVOR_HIGH_MEM:
+                        logger.debug(
+                            "no drain for %s flavor %s, worker %s, continue ... drain only %s",
+                            w_fv["flavor"]["type"]["shortcut"],
+                            w_fv["flavor"]["name"],
+                            w_key,
+                            FLAVOR_HIGH_MEM,
+                        )
                         continue
-            logger.debug("worker disk %s, flavor disk %s", int(w_value['tmp_disk']),
-                         int(fv_max['flavor']['tmp_disk']))
-            logger.debug("w_cpus %s, cpus %s", int(w_value['cpus']), int(fv_max['flavor']['vcpus']))
-            if missing_flavors and (NODE_DRAIN in w_value['state']):
+            logger.debug(
+                "worker disk %s, flavor disk %s",
+                int(w_value["tmp_disk"]),
+                int(fv_max["flavor"]["tmp_disk"]),
+            )
+            logger.debug(
+                "w_cpus %s, cpus %s",
+                int(w_value["cpus"]),
+                int(fv_max["flavor"]["vcpus"]),
+            )
+            if missing_flavors and (NODE_DRAIN in w_value["state"]):
                 logger.debug("missing_flavors: resume %s - keep worker active?", w_key)
                 # scheduler_interface.set_node_to_resume(w_key)
             # worker resources are over required resources
-            elif __compare_worker_high_vs_flavor(fv_max, w_value) and \
-                    not missing_flavors and (NODE_DRAIN not in w_value['state']):
+            elif (
+                __compare_worker_high_vs_flavor(fv_max, w_value)
+                and not missing_flavors
+                and (NODE_DRAIN not in w_value["state"])
+            ):
                 logger.debug("large worker here: set to drain %s", w_key)
                 # drain delay
-                if __drain_worker_check(w_key, w_value, w_fv, flavor_data, jobs_history_dict_rev,
-                                        jobs_running_dict, cluster_worker):
+                if __drain_worker_check(
+                    w_key,
+                    w_value,
+                    w_fv,
+                    flavor_data,
+                    jobs_history_dict_rev,
+                    jobs_running_dict,
+                    cluster_worker,
+                ):
                     scheduler_interface.set_node_to_drain(w_key)
                     worker_data_changed = True
             # if worker in drain and jobs are in queue which require this worker flavor, undrain
             # first test if drained worker are capable
-            elif (NODE_DRAIN in w_value['state']) and \
-                    __compare_worker_meet_flavor(fv_max, w_value):
-                logger.debug("high worker: %s in drain, fit for max required flavor", w_key)
+            elif (NODE_DRAIN in w_value["state"]) and __compare_worker_meet_flavor(
+                fv_max, w_value
+            ):
+                logger.debug(
+                    "high worker: %s in drain, fit for max required flavor", w_key
+                )
                 # undrain if worker with flavor still required for upcoming jobs in queue
                 worker_data_changed = True
                 if __compare_worker_match_flavor(fv_max, w_value):
@@ -2537,18 +2937,22 @@ def set_nodes_to_drain(jobs_pending_dict, worker_json, flavor_data, cluster_work
                     nodes_resume += 1
                 else:
                     logger.debug("high worker: %s in drain, too large", w_key)
-                    if NODE_IDLE in w_value['state']:  # if worker already idle, add for removal
-                        workers_drain.append(w_value['node_hostname'])
-            elif (NODE_DRAIN in w_value['state']) and (NODE_IDLE in w_value['state']):
+                    if (
+                        NODE_IDLE in w_value["state"]
+                    ):  # if worker already idle, add for removal
+                        workers_drain.append(w_value["node_hostname"])
+            elif (NODE_DRAIN in w_value["state"]) and (NODE_IDLE in w_value["state"]):
                 logger.debug("worker %s is drain and idle - scale down", w_key)
-                workers_drain.append(w_value['node_hostname'])
+                workers_drain.append(w_value["node_hostname"])
                 worker_data_changed = True
 
     if nodes_resume > 0:
-        __csv_log_entry('X', nodes_resume, '1')
+        __csv_log_entry("X", nodes_resume, "1")
     if workers_drain:
-        cluster_scale_down_specific_self_check(workers_drain, Rescale.INIT, dummy_worker)
-        __csv_log_entry('Y', len(workers_drain), '0')
+        cluster_scale_down_specific_self_check(
+            workers_drain, Rescale.INIT, dummy_worker
+        )
+        __csv_log_entry("Y", len(workers_drain), "0")
     return worker_data_changed
 
 
@@ -2560,7 +2964,7 @@ def generate_hash(file_path):
     """
     if os.path.isfile(file_path):
         hash_v = hashlib.sha256()
-        with open(file_path, 'rb') as file:
+        with open(file_path, "rb") as file:
             while True:
                 chunk = file.read(hash_v.block_size)
                 if not chunk:
@@ -2579,10 +2983,13 @@ def check_config():
     """
     new_hash = generate_hash(FILE_CONFIG_YAML)
     if new_hash != config_hash:
-        logger.warning("configuration file changed, to apply the changes a manual restart is required \n"
-                       "current hash: %s \n"
-                       "started hash: %s ",
-                       new_hash, config_hash)
+        logger.warning(
+            "configuration file changed, to apply the changes a manual restart is required \n"
+            "current hash: %s \n"
+            "started hash: %s ",
+            new_hash,
+            config_hash,
+        )
     return new_hash
 
 
@@ -2612,10 +3019,10 @@ def convert_to_large_flavor(job_priority, flavors_data, pending_cnt, flavor_min)
     counter = 0
     counter_index = pending_cnt
     for _, value in job_priority:
-        if value['state'] == JOB_PENDING and counter_index > 0:
-            tmp_cpu = int(value['req_cpus'])
-            tmp_mem = int(value['req_mem'])
-            tmp_disk = int(value['tmp_disk'])
+        if value["state"] == JOB_PENDING and counter_index > 0:
+            tmp_cpu = int(value["req_cpus"])
+            tmp_mem = int(value["req_mem"])
+            tmp_disk = int(value["tmp_disk"])
             counter += 1
             sum_cpu += tmp_cpu
             sum_mem += tmp_mem
@@ -2634,18 +3041,31 @@ def convert_to_large_flavor(job_priority, flavors_data, pending_cnt, flavor_min)
         tmp_cpu += sum_cpu
         tmp_mem += sum_mem
         tmp_disk += sum_disk
-        tmp_fv = translate_metrics_to_flavor(tmp_cpu, tmp_mem, tmp_disk, flavors_data, True, True)
+        tmp_fv = translate_metrics_to_flavor(
+            tmp_cpu, tmp_mem, tmp_disk, flavors_data, True, True
+        )
         if tmp_fv is None:
             break
-        if config_mode['large_flavors_except_hmf'] and tmp_fv['flavor']['type']['shortcut'] == FLAVOR_HIGH_MEM:
+        if (
+            config_mode["large_flavors_except_hmf"]
+            and tmp_fv["flavor"]["type"]["shortcut"] == FLAVOR_HIGH_MEM
+        ):
             logger.debug("skip, except hmf is active")
             break
         counter += 1
         flavor_max = tmp_fv
         counter_index -= 1
     if flavor_max:
-        logger.debug("convert_to_large_flavor: max %s jobs with flavor %s", counter, flavor_max['flavor']['name'])
-        logger.debug("high flavor found max %s - min %s", flavor_max['flavor']['name'], flavor_min['flavor']['name'])
+        logger.debug(
+            "convert_to_large_flavor: max %s jobs with flavor %s",
+            counter,
+            flavor_max["flavor"]["name"],
+        )
+        logger.debug(
+            "high flavor found max %s - min %s",
+            flavor_max["flavor"]["name"],
+            flavor_min["flavor"]["name"],
+        )
 
         # test if flavor meet the specified minimal flavor
         if __compare_flavor_max(flavor_max, flavor_min):
@@ -2661,7 +3081,7 @@ def __get_worker_memory_usage(worker_json):
     """
     w_memory_sum = 0
     for _, w_value in worker_json.items():
-        w_memory_sum += int(w_value['real_memory'])
+        w_memory_sum += int(w_value["real_memory"])
     return w_memory_sum
 
 
@@ -2675,14 +3095,18 @@ def __generate_upscale_limit(current_force, jobs_pending_flavor, worker_count, l
     :return: up-scale limit
     """
     upscale_limit = 0
-    worker_weight = float(config_mode['worker_weight'])
+    worker_weight = float(config_mode["worker_weight"])
     if jobs_pending_flavor == 0:
         return upscale_limit
     # reduce starting new workers based on the number of currently existing workers
     if worker_weight != 0:
         force = current_force - (worker_weight * worker_count)
-        logger.debug("WORKER_WEIGHT: %s - worker_useful %s - force %s", worker_weight,
-                     worker_count, force)
+        logger.debug(
+            "WORKER_WEIGHT: %s - worker_useful %s - force %s",
+            worker_weight,
+            worker_count,
+            force,
+        )
         if force < FORCE_LOW:  # prevent too low scale force
             logger.debug("scale force too low: %s - reset", force)
             force = FORCE_LOW
@@ -2760,8 +3184,12 @@ def __multiply(x_val, y_val):
     return round((float(x_val) * float(y_val)) + 0.5)
 
 
-def __multiple_jobs_per_flavor(flavor_tmp,
-                               average_job_resources_cpu, average_job_resources_memory, average_job_resources_tmp_disk):
+def __multiple_jobs_per_flavor(
+    flavor_tmp,
+    average_job_resources_cpu,
+    average_job_resources_memory,
+    average_job_resources_tmp_disk,
+):
     """
     Test if the current flavor can process multiple jobs.
     Check how many pending jobs can run on average on this flavor by cpu, memory and tmp disk.
@@ -2772,17 +3200,38 @@ def __multiple_jobs_per_flavor(flavor_tmp,
     :param average_job_resources_tmp_disk: average tmp disk requirement
     :return: integer value, average jobs per flavor
     """
-    jobs_average_cpu = __division_float(flavor_tmp['flavor']['vcpus'], average_job_resources_cpu)
-    jobs_average_memory = __division_float(flavor_tmp['available_memory'], average_job_resources_memory)
-    logger.debug("fv_cpu %s, av_cpu %s, fv_mem %s, av_mem %s", flavor_tmp['flavor']['vcpus'], average_job_resources_cpu,
-                 flavor_tmp['available_memory'], average_job_resources_memory)
-    logger.debug("jobs_average_cpu %s, jobs_average_memory %s",
-                 jobs_average_cpu, jobs_average_memory)
-    if int(flavor_tmp['flavor']['tmp_disk']) != 0 and average_job_resources_tmp_disk != 0:
-        logger.debug("flavor_next['flavor']['tmp_disk'] %s", flavor_tmp['flavor']['tmp_disk'])
-        jobs_average_tmp_disk = __division_float(flavor_tmp['flavor']['tmp_disk'], average_job_resources_tmp_disk)
+    jobs_average_cpu = __division_float(
+        flavor_tmp["flavor"]["vcpus"], average_job_resources_cpu
+    )
+    jobs_average_memory = __division_float(
+        flavor_tmp["available_memory"], average_job_resources_memory
+    )
+    logger.debug(
+        "fv_cpu %s, av_cpu %s, fv_mem %s, av_mem %s",
+        flavor_tmp["flavor"]["vcpus"],
+        average_job_resources_cpu,
+        flavor_tmp["available_memory"],
+        average_job_resources_memory,
+    )
+    logger.debug(
+        "jobs_average_cpu %s, jobs_average_memory %s",
+        jobs_average_cpu,
+        jobs_average_memory,
+    )
+    if (
+        int(flavor_tmp["flavor"]["tmp_disk"]) != 0
+        and average_job_resources_tmp_disk != 0
+    ):
+        logger.debug(
+            "flavor_next['flavor']['tmp_disk'] %s", flavor_tmp["flavor"]["tmp_disk"]
+        )
+        jobs_average_tmp_disk = __division_float(
+            flavor_tmp["flavor"]["tmp_disk"], average_job_resources_tmp_disk
+        )
         # The lowest value over all types of resources is the maximum possible value
-        average_jobs_per_flavor = min(jobs_average_cpu, jobs_average_memory, jobs_average_tmp_disk)
+        average_jobs_per_flavor = min(
+            jobs_average_cpu, jobs_average_memory, jobs_average_tmp_disk
+        )
     else:
         logger.debug("check average job resources, without disk")
         average_jobs_per_flavor = min(jobs_average_cpu, jobs_average_memory)
@@ -2797,19 +3246,27 @@ def __read_job_time(job_data_dict):
     :return:
     """
     try:
-        return float(job_data_dict['job_norm'])
+        return float(job_data_dict["job_norm"])
     except IndexError:
         logger.error("IndexError: job_data_dict")
         return None
 
 
-def __current_job_lifetime(jobs_running_dict, worker_useful,
-                           average_job_resources_cpu,
-                           average_job_resources_memory,
-                           average_job_resources_tmp_disk,
-                           dict_db, flavor_next, worker_json, cluster_worker,
-                           average_job_time_norm, worker_claimed, job_time_sum,
-                           jobs_pending_flavor):
+def __current_job_lifetime(
+    jobs_running_dict,
+    worker_useful,
+    average_job_resources_cpu,
+    average_job_resources_memory,
+    average_job_resources_tmp_disk,
+    dict_db,
+    flavor_next,
+    worker_json,
+    cluster_worker,
+    average_job_time_norm,
+    worker_claimed,
+    job_time_sum,
+    jobs_pending_flavor,
+):
     """
     Check the probable remaining time of the current jobs to expect free resources.
     If the remaining normalized time of a currently running job below the specification border,
@@ -2842,11 +3299,20 @@ def __current_job_lifetime(jobs_running_dict, worker_useful,
         else:
             # unclaimed and useful
             worker_useful_tmp.append(key)
-    logger.debug("worker_useful_tmp %s, worker_useful_reclaim %s", worker_useful_tmp, worker_useful_reclaim)
-    match_val = float(config_mode['job_time_threshold'])
+    logger.debug(
+        "worker_useful_tmp %s, worker_useful_reclaim %s",
+        worker_useful_tmp,
+        worker_useful_reclaim,
+    )
+    match_val = float(config_mode["job_time_threshold"])
     if dict_db and cluster_worker:
-        logger.debug("worker_useful: %s, worker_claimed: %s, usable %s, av job norm %s", worker_useful, worker_claimed,
-                     worker_useful_tmp, average_job_time_norm)
+        logger.debug(
+            "worker_useful: %s, worker_claimed: %s, usable %s, av job norm %s",
+            worker_useful,
+            worker_claimed,
+            worker_useful_tmp,
+            average_job_time_norm,
+        )
 
         # check unclaimed workers
         for worker in worker_useful_tmp:
@@ -2854,13 +3320,13 @@ def __current_job_lifetime(jobs_running_dict, worker_useful,
             if not worker_data:
                 logger.debug("missing worker_values %s ", worker_data)
                 continue
-            if NODE_DRAIN in worker_data['state']:
+            if NODE_DRAIN in worker_data["state"]:
                 continue
             logger.debug("check jobs on worker %s", worker)
             logger.debug("worker_values %s ", worker_data)
-            w_free_cpu = worker_data['cpus']
-            w_free_mem = int(worker_data['real_memory'])
-            w_free_disk = worker_data['tmp_disk']
+            w_free_cpu = worker_data["cpus"]
+            w_free_mem = int(worker_data["real_memory"])
+            w_free_disk = worker_data["tmp_disk"]
             tmp_cpu = 0
             tmp_mem = 0
             tmp_disk = 0
@@ -2870,119 +3336,224 @@ def __current_job_lifetime(jobs_running_dict, worker_useful,
             if not w_cd:
                 continue
             for j_key, j_value in jobs_running_dict.items():
-                if worker == j_value['nodes']:
+                if worker == j_value["nodes"]:
                     job_time_norm = None
                     # collect worker usage
-                    w_free_cpu -= max(j_value['req_cpus'], 0)
-                    w_free_mem -= max(j_value['req_mem'], 0)
-                    w_free_disk -= max(j_value['tmp_disk'], 0)
+                    w_free_cpu -= max(j_value["req_cpus"], 0)
+                    w_free_mem -= max(j_value["req_mem"], 0)
+                    w_free_disk -= max(j_value["tmp_disk"], 0)
 
-                    logger.debug("running job %s on compatible worker %s", j_value['jobname'], worker)
-                    tmp_job_data = job_data_from_database(dict_db, flavor_next['flavor']['name'],
-                                                          __clear_job_name(j_value), True)
+                    logger.debug(
+                        "running job %s on compatible worker %s",
+                        j_value["jobname"],
+                        worker,
+                    )
+                    tmp_job_data = job_data_from_database(
+                        dict_db,
+                        flavor_next["flavor"]["name"],
+                        __clear_job_name(j_value),
+                        True,
+                    )
                     # jobs with history data
                     if tmp_job_data:
                         # expected normalized runtime on this node
                         job_time_norm = __read_job_time(tmp_job_data)
                     # include flavor times
                     else:
-                        if config_mode['forecast_by_flavor_history']:
-                            job_time_norm = flavor_data_from_database(dict_db, flavor_next['flavor']['name'])
+                        if config_mode["forecast_by_flavor_history"]:
+                            job_time_norm = flavor_data_from_database(
+                                dict_db, flavor_next["flavor"]["name"]
+                            )
 
                     if job_time_norm:
-                        current_norm_runtime = __calc_job_time_norm(j_value['elapsed'], 1)
+                        current_norm_runtime = __calc_job_time_norm(
+                            j_value["elapsed"], 1
+                        )
                         # expected runtime < 0, under specified configuration
-                        expected_time_left = max(job_time_norm - current_norm_runtime, 0)
+                        expected_time_left = max(
+                            job_time_norm - current_norm_runtime, 0
+                        )
                         logger.debug(
                             "jobname %s, tmp_job_data %s, job_time_norm %s, current_norm_runtime %s, norm left %s",
-                            j_value['jobname'], tmp_job_data, job_time_norm, current_norm_runtime, expected_time_left)
+                            j_value["jobname"],
+                            tmp_job_data,
+                            job_time_norm,
+                            current_norm_runtime,
+                            expected_time_left,
+                        )
 
                         if expected_time_left < match_val:
                             running_jobs_on_worker += 1
                             expected_time_left_sum += expected_time_left
-                            tmp_cpu += j_value['req_cpus']
-                            tmp_mem += j_value['req_mem']
-                            tmp_disk += j_value['tmp_disk']
-                        logger.debug("worker %s, norm %s, job %s", worker, expected_time_left_sum, j_key)
-            logger.debug("remaining worker %s resources cpu: %s, mem: %s, disk: %s", worker, w_free_cpu, w_free_mem,
-                         w_free_disk)
-            logger.debug("expected free worker %s resources cpu: %s, mem: %s, disk: %s", worker, tmp_cpu, tmp_mem,
-                         tmp_disk)
+                            tmp_cpu += j_value["req_cpus"]
+                            tmp_mem += j_value["req_mem"]
+                            tmp_disk += j_value["tmp_disk"]
+                        logger.debug(
+                            "worker %s, norm %s, job %s",
+                            worker,
+                            expected_time_left_sum,
+                            j_key,
+                        )
+            logger.debug(
+                "remaining worker %s resources cpu: %s, mem: %s, disk: %s",
+                worker,
+                w_free_cpu,
+                w_free_mem,
+                w_free_disk,
+            )
+            logger.debug(
+                "expected free worker %s resources cpu: %s, mem: %s, disk: %s",
+                worker,
+                tmp_cpu,
+                tmp_mem,
+                tmp_disk,
+            )
             tmp_cpu += w_free_cpu
             tmp_mem += w_free_mem
             tmp_disk += w_free_disk
             # consider available free memory
-            if isinstance(worker_data['free_mem'], int):
-                logger.debug("free_mem %s, tmp_mem %s", worker_data['free_mem'], tmp_mem)
-                tmp_mem = max(worker_data['free_mem'], tmp_mem)
+            if isinstance(worker_data["free_mem"], int):
+                logger.debug(
+                    "free_mem %s, tmp_mem %s", worker_data["free_mem"], tmp_mem
+                )
+                tmp_mem = max(worker_data["free_mem"], tmp_mem)
             # check how many jobs we expect to run on available nodes with upcoming worker resources
             if average_job_resources_tmp_disk != 0:
-                simultaneous_jobs_per_worker = min(__division_round_down(tmp_cpu, average_job_resources_cpu),
-                                                   __division_round_down(tmp_mem, average_job_resources_memory),
-                                                   __division_round_down(tmp_disk, average_job_resources_tmp_disk))
+                simultaneous_jobs_per_worker = min(
+                    __division_round_down(tmp_cpu, average_job_resources_cpu),
+                    __division_round_down(tmp_mem, average_job_resources_memory),
+                    __division_round_down(tmp_disk, average_job_resources_tmp_disk),
+                )
             else:
-                simultaneous_jobs_per_worker = min(__division_round_down(tmp_cpu, average_job_resources_cpu),
-                                                   __division_round_down(tmp_mem, average_job_resources_memory))
+                simultaneous_jobs_per_worker = min(
+                    __division_round_down(tmp_cpu, average_job_resources_cpu),
+                    __division_round_down(tmp_mem, average_job_resources_memory),
+                )
             # Calculate how many jobs are possible, according to pending normalized runtime
 
             # average time until upcoming worker resources are free
-            norm_left_tmp = __division_float(expected_time_left_sum, running_jobs_on_worker)
-            logger.debug("norm_left_tmp %s, expected_time_left_sum %s, running_jobs_on_worker %s",
-                         norm_left_tmp, expected_time_left_sum, running_jobs_on_worker)
+            norm_left_tmp = __division_float(
+                expected_time_left_sum, running_jobs_on_worker
+            )
+            logger.debug(
+                "norm_left_tmp %s, expected_time_left_sum %s, running_jobs_on_worker %s",
+                norm_left_tmp,
+                expected_time_left_sum,
+                running_jobs_on_worker,
+            )
             norm_free_tmp = max((match_val - norm_left_tmp), 0)
             # how many jobs we can expect to process on a single worker
-            jobs_per_timeslot_tmp = __division_round_up(norm_free_tmp, average_job_time_norm)
-            logger.debug("average_job_time_norm %s, jobs_per_timeslot_tmp %s",
-                         average_job_time_norm, jobs_per_timeslot_tmp)
-            jobs_worker_can_process = jobs_per_timeslot_tmp * simultaneous_jobs_per_worker
+            jobs_per_timeslot_tmp = __division_round_up(
+                norm_free_tmp, average_job_time_norm
+            )
+            logger.debug(
+                "average_job_time_norm %s, jobs_per_timeslot_tmp %s",
+                average_job_time_norm,
+                jobs_per_timeslot_tmp,
+            )
+            jobs_worker_can_process = (
+                jobs_per_timeslot_tmp * simultaneous_jobs_per_worker
+            )
 
-            logger.debug("worker %s can process %s jobs "
-                         "with the normalized free time %s, todo %s "
-                         "simultaneous jobs per worker possible: %s",
-                         worker, jobs_worker_can_process, norm_free_tmp, norm_left_tmp, simultaneous_jobs_per_worker)
+            logger.debug(
+                "worker %s can process %s jobs "
+                "with the normalized free time %s, todo %s "
+                "simultaneous jobs per worker possible: %s",
+                worker,
+                jobs_worker_can_process,
+                norm_free_tmp,
+                norm_left_tmp,
+                simultaneous_jobs_per_worker,
+            )
 
             if jobs_worker_can_process > 0:
                 logger.debug(worker_claimed)
                 logger.debug(type(worker_claimed))
                 worker_claimed.update(
-                    {worker: {'cpu': tmp_cpu - (average_job_resources_cpu * simultaneous_jobs_per_worker),
-                              'mem': tmp_mem - (average_job_resources_memory * simultaneous_jobs_per_worker),
-                              'disk': tmp_disk - (average_job_resources_tmp_disk * simultaneous_jobs_per_worker),
-                              'norm': norm_free_tmp}})
+                    {
+                        worker: {
+                            "cpu": tmp_cpu
+                            - (
+                                average_job_resources_cpu * simultaneous_jobs_per_worker
+                            ),
+                            "mem": tmp_mem
+                            - (
+                                average_job_resources_memory
+                                * simultaneous_jobs_per_worker
+                            ),
+                            "disk": tmp_disk
+                            - (
+                                average_job_resources_tmp_disk
+                                * simultaneous_jobs_per_worker
+                            ),
+                            "norm": norm_free_tmp,
+                        }
+                    }
+                )
                 jobs_workers_can_process += jobs_worker_can_process
                 norm_workers_free += norm_free_tmp
                 logger.debug("claim worker %s", worker)
-                if (job_time_sum - norm_workers_free) < 0 and jobs_pending_flavor < jobs_workers_can_process:
+                if (
+                    job_time_sum - norm_workers_free
+                ) < 0 and jobs_pending_flavor < jobs_workers_can_process:
                     break
                 if jobs_pending_flavor < jobs_workers_can_process:
                     break
-        logger.debug("jobs_workers_can_process %s ==== %s ====", jobs_workers_can_process, worker_claimed)
+        logger.debug(
+            "jobs_workers_can_process %s ==== %s ====",
+            jobs_workers_can_process,
+            worker_claimed,
+        )
         logger.debug("worker_useful_reclaim %s", worker_useful_reclaim)
 
         for worker in worker_useful_reclaim:
             if jobs_pending_flavor < jobs_workers_can_process:
                 break
             values = worker_claimed[worker]
-            tmp_cpu = values['cpu']
-            tmp_mem = values['mem']
-            tmp_disk = values['disk']
-            norm_free_tmp = values['norm']
+            tmp_cpu = values["cpu"]
+            tmp_mem = values["mem"]
+            tmp_disk = values["disk"]
+            norm_free_tmp = values["norm"]
             if average_job_resources_tmp_disk != 0:
-                simultaneous_jobs_per_worker = min(__division_round_down(tmp_cpu, average_job_resources_cpu),
-                                                   __division_round_down(tmp_mem, average_job_resources_memory),
-                                                   __division_round_down(tmp_disk, average_job_resources_tmp_disk))
+                simultaneous_jobs_per_worker = min(
+                    __division_round_down(tmp_cpu, average_job_resources_cpu),
+                    __division_round_down(tmp_mem, average_job_resources_memory),
+                    __division_round_down(tmp_disk, average_job_resources_tmp_disk),
+                )
             else:
-                simultaneous_jobs_per_worker = min(__division_round_down(tmp_cpu, average_job_resources_cpu),
-                                                   __division_round_down(tmp_mem, average_job_resources_memory))
+                simultaneous_jobs_per_worker = min(
+                    __division_round_down(tmp_cpu, average_job_resources_cpu),
+                    __division_round_down(tmp_mem, average_job_resources_memory),
+                )
 
-            jobs_per_timeslot_tmp = max(__division_round(norm_free_tmp, average_job_time_norm), 1)
-            jobs_worker_can_process = jobs_per_timeslot_tmp * simultaneous_jobs_per_worker
+            jobs_per_timeslot_tmp = max(
+                __division_round(norm_free_tmp, average_job_time_norm), 1
+            )
+            jobs_worker_can_process = (
+                jobs_per_timeslot_tmp * simultaneous_jobs_per_worker
+            )
             if jobs_worker_can_process > 0:
                 worker_claimed.update(
-                    {worker: {'cpu': tmp_cpu - (average_job_resources_cpu * simultaneous_jobs_per_worker),
-                              'mem': tmp_mem - (average_job_resources_memory * simultaneous_jobs_per_worker),
-                              'disk': tmp_disk - (average_job_resources_tmp_disk * simultaneous_jobs_per_worker),
-                              'norm': norm_free_tmp}})
+                    {
+                        worker: {
+                            "cpu": tmp_cpu
+                            - (
+                                average_job_resources_cpu * simultaneous_jobs_per_worker
+                            ),
+                            "mem": tmp_mem
+                            - (
+                                average_job_resources_memory
+                                * simultaneous_jobs_per_worker
+                            ),
+                            "disk": tmp_disk
+                            - (
+                                average_job_resources_tmp_disk
+                                * simultaneous_jobs_per_worker
+                            ),
+                            "norm": norm_free_tmp,
+                        }
+                    }
+                )
                 jobs_workers_can_process += jobs_worker_can_process
                 logger.debug(worker_claimed)
     logger.debug("we can expect to run %s pending jobs", jobs_workers_can_process)
@@ -2990,17 +3561,38 @@ def __current_job_lifetime(jobs_running_dict, worker_useful,
         jobs_workers_can_process_tmp = jobs_pending_flavor
     else:
         jobs_workers_can_process_tmp = jobs_workers_can_process
-    logger.info("we can expect to run %s pending jobs on current allocated workers %s in time",
-                jobs_workers_can_process_tmp, worker_claimed)
-    logger.debug("free normalized time %s, workers claimed %s, job process %s, known jobs %s", norm_workers_free,
-                 worker_claimed,
-                 jobs_workers_can_process, jobs_pending_flavor)
+    logger.info(
+        "we can expect to run %s pending jobs on current allocated workers %s in time",
+        jobs_workers_can_process_tmp,
+        worker_claimed,
+    )
+    logger.debug(
+        "free normalized time %s, workers claimed %s, job process %s, known jobs %s",
+        norm_workers_free,
+        worker_claimed,
+        jobs_workers_can_process,
+        jobs_pending_flavor,
+    )
     return jobs_workers_can_process_tmp
 
 
-def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count, worker_json, worker_drain, state,
-                              flavors_data, flavor_next, level, worker_memory_usage, jobs_running_dict,
-                              cluster_worker, flavors_started_cnt, level_pending, worker_claimed):
+def __calculate_scale_up_data(
+    flavor_job_list,
+    jobs_pending_flavor,
+    worker_count,
+    worker_json,
+    worker_drain,
+    state,
+    flavors_data,
+    flavor_next,
+    level,
+    worker_memory_usage,
+    jobs_running_dict,
+    cluster_worker,
+    flavors_started_cnt,
+    level_pending,
+    worker_claimed,
+):
     """
     Create scale-up data for pending jobs with a specific flavor.
     Generates the scaling variable step by step according to user settings and available data from the job dictionary.
@@ -3022,40 +3614,58 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
     :param worker_claimed: active workers with possible free resources, each level forecast can claim
     :return: scale_up_data: scale up data for server
     """
-    logger.debug("--------------- %s : %s -----------------", inspect.stack()[0][3], flavor_next['flavor']['name'])
+    logger.debug(
+        "--------------- %s : %s -----------------",
+        inspect.stack()[0][3],
+        flavor_next["flavor"]["name"],
+    )
     workers_blocked = False
     need_workers = False
-    large_flavors = config_mode['large_flavors']
-    worker_capable, _, worker_useful, _ = __current_workers_capable(flavor_job_list, worker_json, None)
+    large_flavors = config_mode["large_flavors"]
+    worker_capable, _, worker_useful, _ = __current_workers_capable(
+        flavor_job_list, worker_json, None
+    )
     worker_usable = [x for x in worker_useful if x not in worker_drain]
     worker_usable_cnt = len(worker_usable)
-    time_threshold = __get_time_threshold(flavor_next['flavor']['name'])
+    time_threshold = __get_time_threshold(flavor_next["flavor"]["name"])
     fv_mem = 0
     dict_db = None
     job_time_fv = None
     scale_up_data = {}
     flavor_tmp = flavor_next
-    logger.debug("worker_useful %s, worker_drain %s, worker_usable %s",
-                 worker_useful, worker_drain, worker_usable)
+    logger.debug(
+        "worker_useful %s, worker_drain %s, worker_usable %s",
+        worker_useful,
+        worker_drain,
+        worker_usable,
+    )
     if level != 0 and flavors_started_cnt > 0:
         # possible wrong capable data by starting multiple flavors on higher levels
         worker_capable = True
 
-    current_force = float(config_mode['scale_force'])
-    forecast_by_flavor_history = config_mode['forecast_by_flavor_history']
-    forecast_by_job_history = config_mode['forecast_by_job_history']
-    flavor_depth = int(config_mode['flavor_depth'])
-    limit_memory = int(config_mode['limit_memory'])
-    forecast_active_worker = int(config_mode['forecast_active_worker'])
-    flavor_default = config_mode['flavor_default']
-    auto_activate_large_flavors = int(config_mode['auto_activate_large_flavors'])
-    limit_worker_starts = int(config_mode['limit_worker_starts'])
+    current_force = float(config_mode["scale_force"])
+    forecast_by_flavor_history = config_mode["forecast_by_flavor_history"]
+    forecast_by_job_history = config_mode["forecast_by_job_history"]
+    flavor_depth = int(config_mode["flavor_depth"])
+    limit_memory = int(config_mode["limit_memory"])
+    forecast_active_worker = int(config_mode["forecast_active_worker"])
+    flavor_default = config_mode["flavor_default"]
+    auto_activate_large_flavors = int(config_mode["auto_activate_large_flavors"])
+    limit_worker_starts = int(config_mode["limit_worker_starts"])
 
     if flavor_next is None or not flavors_data:
         return None, worker_memory_usage
-    logger.info("calc worker for %s; pending %s jobs; worker active %s, capable %s %s, memory %s, need %s; state %s",
-                flavor_next['flavor']['name'], jobs_pending_flavor, worker_count,
-                worker_capable, worker_usable_cnt, worker_memory_usage, need_workers, state.name)
+    logger.info(
+        "calc worker for %s; pending %s jobs; worker active %s, capable %s %s, memory %s, need %s; state %s",
+        flavor_next["flavor"]["name"],
+        jobs_pending_flavor,
+        worker_count,
+        worker_capable,
+        worker_usable_cnt,
+        worker_memory_usage,
+        need_workers,
+        state.name,
+    )
 
     if forecast_by_flavor_history or forecast_by_job_history:
         dict_db = __get_file(DATABASE_FILE)
@@ -3064,45 +3674,70 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
 
     if dict_db and forecast_by_flavor_history and flavor_depth != DEPTH_MAX_WORKER:
         # required for jobs without history
-        fv_name = __clear_flavor_name(flavor_next['flavor']['name'])
-        if fv_name in dict_db['flavor_name']:
-            job_time_fv = min(float(dict_db['flavor_name'][fv_name]['fv_time_norm']), time_threshold)
+        fv_name = __clear_flavor_name(flavor_next["flavor"]["name"])
+        if fv_name in dict_db["flavor_name"]:
+            job_time_fv = min(
+                float(dict_db["flavor_name"][fv_name]["fv_time_norm"]), time_threshold
+            )
 
-    upscale_limit = __generate_upscale_limit(current_force, jobs_pending_flavor, worker_usable_cnt, level)
-    logger.debug("track upscale limit level %s: %s, flavor time: %s", level, upscale_limit, job_time_fv)
+    upscale_limit = __generate_upscale_limit(
+        current_force, jobs_pending_flavor, worker_usable_cnt, level
+    )
+    logger.debug(
+        "track upscale limit level %s: %s, flavor time: %s",
+        level,
+        upscale_limit,
+        job_time_fv,
+    )
     # memory limit pre-check
     if limit_memory != 0:
         if worker_memory_usage > convert_tb_to_mb(limit_memory):
             upscale_limit = 0
-    logger.debug("track upscale limit level %s: %s, worker_memory_usage: %s - memory limit check", level, upscale_limit,
-                 worker_memory_usage)
+    logger.debug(
+        "track upscale limit level %s: %s, worker_memory_usage: %s - memory limit check",
+        level,
+        upscale_limit,
+        worker_memory_usage,
+    )
 
     if not worker_capable or worker_count == 0:
         need_workers = True
     if need_workers and upscale_limit == 0:
         upscale_limit = 1
-        logger.debug("track upscale limit level %s: %s, worker capable: %s - force up", level, upscale_limit,
-                     worker_capable)
+        logger.debug(
+            "track upscale limit level %s: %s, worker capable: %s - force up",
+            level,
+            upscale_limit,
+            worker_capable,
+        )
     if upscale_limit > 0 or level_pending > 0:
         job_time_sum = 0
         job_time_cnt = 0
         jobs_pending_similar_data_missing = 0
 
         for _, value in flavor_job_list:
-            if value['state'] == JOB_PENDING:
+            if value["state"] == JOB_PENDING:
                 job_name = __clear_job_name(value)
                 # search for known jobs
                 if forecast_by_job_history:
-                    tmp_job_data = job_data_from_database(dict_db, flavor_next['flavor']['name'], job_name, True)
+                    tmp_job_data = job_data_from_database(
+                        dict_db, flavor_next["flavor"]["name"], job_name, True
+                    )
                     if tmp_job_data:
-                        job_time_norm = min(__read_job_time(tmp_job_data), time_threshold)
+                        job_time_norm = min(
+                            __read_job_time(tmp_job_data), time_threshold
+                        )
                     else:
                         # new job
                         job_time_norm = None
                     if job_time_norm:
                         # collect time values from pending jobs
-                        logger.debug("job_time_norm: sum %s, norm %s, mode %s",
-                                     job_time_sum, job_time_norm, time_threshold)
+                        logger.debug(
+                            "job_time_norm: sum %s, norm %s, mode %s",
+                            job_time_sum,
+                            job_time_norm,
+                            time_threshold,
+                        )
                         job_time_sum += job_time_norm
                         job_time_cnt += 1
                     else:
@@ -3119,9 +3754,15 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
         # use only known jobs at lifetime check
         average_job_time_norm = __division_float(job_time_sum, job_time_cnt)
         # convert to a larger flavor when useful
-        fv_high, jobs_per_fv_high, average_job_resources_cpu, average_job_resources_memory, \
-            average_job_resources_tmp_disk = \
-            convert_to_large_flavor(flavor_job_list, flavors_data, jobs_pending_flavor, flavor_next)
+        (
+            fv_high,
+            jobs_per_fv_high,
+            average_job_resources_cpu,
+            average_job_resources_memory,
+            average_job_resources_tmp_disk,
+        ) = convert_to_large_flavor(
+            flavor_job_list, flavors_data, jobs_pending_flavor, flavor_next
+        )
 
         # calculate worker with summarized job time norm
         if forecast_by_job_history or forecast_by_flavor_history:
@@ -3129,13 +3770,18 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
             # generate time based limit
             similar_job_worker_cnt = __division_round_down(job_time_sum, time_threshold)
             # generate upscale limit for jobs without job or flavor history data
-            similar_job_worker_cnt_unk = __generate_upscale_limit(current_force,
-                                                                  jobs_pending_similar_data_missing,
-                                                                  worker_usable_cnt, level)
+            similar_job_worker_cnt_unk = __generate_upscale_limit(
+                current_force,
+                jobs_pending_similar_data_missing,
+                worker_usable_cnt,
+                level,
+            )
             if job_time_fv:
                 job_time_sum += job_time_unk
                 job_time_cnt += jobs_pending_similar_data_missing
-                similar_job_worker_cnt = __division_round_down(job_time_sum, time_threshold)
+                similar_job_worker_cnt = __division_round_down(
+                    job_time_sum, time_threshold
+                )
                 average_job_time_norm = __division_float(job_time_sum, job_time_cnt)
             else:
                 similar_job_worker_cnt += similar_job_worker_cnt_unk
@@ -3143,21 +3789,36 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
             # reduce previous generated upscale limit
             if upscale_limit > similar_job_worker_cnt >= 0:
                 upscale_limit = similar_job_worker_cnt
-            logger.debug("track upscale limit level %s: %s, sum: %s - job time similar search", level, upscale_limit,
-                         job_time_sum)
+            logger.debug(
+                "track upscale limit level %s: %s, sum: %s - job time similar search",
+                level,
+                upscale_limit,
+                job_time_sum,
+            )
             # check active workers
             if forecast_active_worker > 0:
-                worker_active_weight = \
-                    __current_job_lifetime(jobs_running_dict, worker_usable,
-                                           average_job_resources_cpu,
-                                           average_job_resources_memory,
-                                           average_job_resources_tmp_disk,
-                                           dict_db, flavor_next, worker_json, cluster_worker,
-                                           average_job_time_norm, worker_claimed,
-                                           job_time_sum, job_time_cnt)
+                worker_active_weight = __current_job_lifetime(
+                    jobs_running_dict,
+                    worker_usable,
+                    average_job_resources_cpu,
+                    average_job_resources_memory,
+                    average_job_resources_tmp_disk,
+                    dict_db,
+                    flavor_next,
+                    worker_json,
+                    cluster_worker,
+                    average_job_time_norm,
+                    worker_claimed,
+                    job_time_sum,
+                    job_time_cnt,
+                )
 
-                if config_mode['forecast_occupied_worker'] and worker_active_weight < 1 and \
-                        flavors_started_cnt == 0 and worker_count != 0:
+                if (
+                    config_mode["forecast_occupied_worker"]
+                    and worker_active_weight < 1
+                    and flavors_started_cnt == 0
+                    and worker_count != 0
+                ):
                     # workers are blocked with current jobs
                     logger.debug("workers blocked with active jobs")
                     workers_blocked = True
@@ -3168,18 +3829,26 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
                 # reduce upscale_limit by lifetime result
                 if upscale_limit_active < upscale_limit:
                     upscale_limit = jobs_pending_flavor - worker_active_weight
-                    logger.debug("track upscale limit level %s: %s, lifetime: - %s", level,
-                                 upscale_limit, jobs_pending_flavor)
+                    logger.debug(
+                        "track upscale limit level %s: %s, lifetime: - %s",
+                        level,
+                        upscale_limit,
+                        jobs_pending_flavor,
+                    )
 
                 # reduce job stats by lifetime result
                 if worker_active_weight > 0:
-                    job_time_cnt_tmp = upscale_limit_active * __division_float(job_time_cnt,
-                                                                               jobs_pending_flavor)
-                    job_time_sum_tmp = job_time_cnt_tmp * __division_float(job_time_sum,
-                                                                           job_time_cnt)
+                    job_time_cnt_tmp = upscale_limit_active * __division_float(
+                        job_time_cnt, jobs_pending_flavor
+                    )
+                    job_time_sum_tmp = job_time_cnt_tmp * __division_float(
+                        job_time_sum, job_time_cnt
+                    )
                     job_time_sum = max(job_time_sum_tmp, 0.1)
                     # generate time based limit update
-                    similar_job_worker_cnt = __division_round(job_time_sum, time_threshold)
+                    similar_job_worker_cnt = __division_round(
+                        job_time_sum, time_threshold
+                    )
 
                     # include if flavor data not available
                     if not job_time_fv:
@@ -3190,113 +3859,175 @@ def __calculate_scale_up_data(flavor_job_list, jobs_pending_flavor, worker_count
                         upscale_limit = similar_job_worker_cnt
                     logger.debug(
                         "merge jobs: norm_sum %s , worker_cnt %s , active_weight %s upscale %s",
-                        job_time_sum, similar_job_worker_cnt, worker_active_weight, upscale_limit)
-                    logger.debug("upscale_limit %s similar_job_worker_cnt %s", upscale_limit,
-                                 similar_job_worker_cnt)
+                        job_time_sum,
+                        similar_job_worker_cnt,
+                        worker_active_weight,
+                        upscale_limit,
+                    )
+                    logger.debug(
+                        "upscale_limit %s similar_job_worker_cnt %s",
+                        upscale_limit,
+                        similar_job_worker_cnt,
+                    )
 
         # set default flavor if default flavor meet requirements
         if flavor_default:
             fv_fix = __get_flavor_by_name(flavors_data, flavor_default)
             if fv_fix:
-                if fv_fix['flavor']['ram_gib'] >= flavor_tmp['flavor']['ram_gib'] and \
-                        fv_fix['flavor']['tmp_disk'] >= flavor_tmp['flavor']['tmp_disk'] and \
-                        fv_fix['flavor']['vcpus'] >= flavor_tmp['flavor']['vcpus']:
+                if (
+                    fv_fix["flavor"]["ram_gib"] >= flavor_tmp["flavor"]["ram_gib"]
+                    and fv_fix["flavor"]["tmp_disk"] >= flavor_tmp["flavor"]["tmp_disk"]
+                    and fv_fix["flavor"]["vcpus"] >= flavor_tmp["flavor"]["vcpus"]
+                ):
                     flavor_tmp = fv_fix
                 else:
                     logger.error(
-                        "flavor_default is active, but selected flavor not meet the requirements for minimal flavor")
+                        "flavor_default is active, but selected flavor not meet the requirements for minimal flavor"
+                    )
                     return None, worker_memory_usage
             else:
-                logger.error("flavor_default is active, selected flavor is not available")
+                logger.error(
+                    "flavor_default is active, selected flavor is not available"
+                )
                 return None, worker_memory_usage
 
-        average_jobs_per_flavor = __multiple_jobs_per_flavor(flavor_tmp,
-                                                             average_job_resources_cpu,
-                                                             average_job_resources_memory,
-                                                             average_job_resources_tmp_disk)
+        average_jobs_per_flavor = __multiple_jobs_per_flavor(
+            flavor_tmp,
+            average_job_resources_cpu,
+            average_job_resources_memory,
+            average_job_resources_tmp_disk,
+        )
         # auto activate large flavors
-        if auto_activate_large_flavors != 0 and \
-                __division_round(upscale_limit, average_jobs_per_flavor) >= auto_activate_large_flavors:
+        if (
+            auto_activate_large_flavors != 0
+            and __division_round(upscale_limit, average_jobs_per_flavor)
+            >= auto_activate_large_flavors
+        ):
             large_flavors = True
             logger.debug("auto activate high worker")
         # switch to higher flavor
         if large_flavors and fv_high:
-            logger.debug("high_flavor found %s cnt %s with %s jobs per flavor, minimum flavor was %s cnt %s",
-                         fv_high['flavor']['name'], fv_high['cnt'], jobs_per_fv_high,
-                         flavor_tmp['flavor']['name'], flavor_tmp['cnt'])
-            if fv_high['cnt'] < flavor_tmp['cnt']:  # lower - higher flavor
+            logger.debug(
+                "high_flavor found %s cnt %s with %s jobs per flavor, minimum flavor was %s cnt %s",
+                fv_high["flavor"]["name"],
+                fv_high["cnt"],
+                jobs_per_fv_high,
+                flavor_tmp["flavor"]["name"],
+                flavor_tmp["cnt"],
+            )
+            if fv_high["cnt"] < flavor_tmp["cnt"]:  # lower - higher flavor
                 flavor_tmp = fv_high
                 logger.debug("found high flavor for jobs in queue")
-                average_jobs_per_flavor = __multiple_jobs_per_flavor(flavor_tmp,
-                                                                     average_job_resources_cpu,
-                                                                     average_job_resources_memory,
-                                                                     average_job_resources_tmp_disk)
+                average_jobs_per_flavor = __multiple_jobs_per_flavor(
+                    flavor_tmp,
+                    average_job_resources_cpu,
+                    average_job_resources_memory,
+                    average_job_resources_tmp_disk,
+                )
         # more than one job per flavor
         if average_jobs_per_flavor > 1:
             upscale_limit_tmp = __division_round(upscale_limit, average_jobs_per_flavor)
             if upscale_limit_tmp < upscale_limit:
                 logger.debug(
                     "check average job resources against flavor resources, average max %s, limit old %s new %s",
-                    average_jobs_per_flavor, upscale_limit, upscale_limit_tmp)
+                    average_jobs_per_flavor,
+                    upscale_limit,
+                    upscale_limit_tmp,
+                )
                 upscale_limit = upscale_limit_tmp
-        logger.debug("track upscale limit level %s: %s, jobs per flavor: %s", level,
-                     upscale_limit,
-                     average_jobs_per_flavor)
+        logger.debug(
+            "track upscale limit level %s: %s, jobs per flavor: %s",
+            level,
+            upscale_limit,
+            average_jobs_per_flavor,
+        )
 
         if workers_blocked and upscale_limit < 1:
             logger.info("workers occupied, need one")
             upscale_limit = 1
         # memory limit check for scale up workers
-        fv_mem = convert_gb_to_mb(flavor_tmp['flavor']['ram_gib'])
+        fv_mem = convert_gb_to_mb(flavor_tmp["flavor"]["ram_gib"])
         if limit_memory != 0:
             memory_buffer = convert_tb_to_mb(limit_memory) - worker_memory_usage
             flavor_possible = __division_round_down(memory_buffer, fv_mem)
-            logger.debug("memory limit: flavor_possible %s, upscale_limit %s,"
-                         " free %s, fv_mem %s, mem_sum %s, level %s",
-                         flavor_possible, upscale_limit, memory_buffer, fv_mem, worker_memory_usage, level)
+            logger.debug(
+                "memory limit: flavor_possible %s, upscale_limit %s,"
+                " free %s, fv_mem %s, mem_sum %s, level %s",
+                flavor_possible,
+                upscale_limit,
+                memory_buffer,
+                fv_mem,
+                worker_memory_usage,
+                level,
+            )
             if flavor_possible < upscale_limit:
                 upscale_limit = flavor_possible
 
-        logger.debug("track upscale limit level %s: %s,  memory limit second check", level, upscale_limit)
+        logger.debug(
+            "track upscale limit level %s: %s,  memory limit second check",
+            level,
+            upscale_limit,
+        )
 
         # worker count limit check
         if limit_memory != 0:
             if worker_count >= limit_memory:
                 upscale_limit = 0
             elif (worker_count + upscale_limit) > limit_memory:
-                logger.debug("limit workers: up %s, count %s, limit %s, reduced %s",
-                             upscale_limit, worker_count, limit_memory,
-                             limit_memory - worker_count)
+                logger.debug(
+                    "limit workers: up %s, count %s, limit %s, reduced %s",
+                    upscale_limit,
+                    worker_count,
+                    limit_memory,
+                    limit_memory - worker_count,
+                )
                 upscale_limit = limit_memory - worker_count
-        logger.debug("track upscale limit level %s: %s  - limit workers", level, upscale_limit)
+        logger.debug(
+            "track upscale limit level %s: %s  - limit workers", level, upscale_limit
+        )
 
         # force scale up, if required
         if need_workers and upscale_limit < 1:
             logger.info("scale force up %s, worker_count %s", state, worker_count)
             upscale_limit = 1
-        logger.debug("track upscale limit level %s: %s  - need workers", level, upscale_limit)
+        logger.debug(
+            "track upscale limit level %s: %s  - need workers", level, upscale_limit
+        )
         # check available flavors on cluster
-        flavor_count_available = __get_flavor_available_count(flavors_data, flavor_tmp['flavor']['name'])
+        flavor_count_available = __get_flavor_available_count(
+            flavors_data, flavor_tmp["flavor"]["name"]
+        )
         if upscale_limit > flavor_count_available:
-            logger.debug("track upscale limit level %s: %s  - reduce worker, available flavor %s ", level,
-                         upscale_limit,
-                         flavor_count_available)
+            logger.debug(
+                "track upscale limit level %s: %s  - reduce worker, available flavor %s ",
+                level,
+                upscale_limit,
+                flavor_count_available,
+            )
             upscale_limit = flavor_count_available
             logger.info("insufficient resources")
-            __csv_log_entry('L', flavor_next['flavor']['name'], 0)
+            __csv_log_entry("L", flavor_next["flavor"]["name"], 0)
         # limit worker starts
         if limit_worker_starts != 0 and upscale_limit > limit_worker_starts:
             upscale_limit = limit_worker_starts
-        scale_up_data = {"password": __get_cluster_password(), "worker_flavor_name": flavor_tmp['flavor']['name'],
-                         "upscale_count": upscale_limit, 'version': VERSION}
-        logger.debug("track upscale limit level %s: %s  - start limit", level, upscale_limit)
+        scale_up_data = {
+            "password": __get_cluster_password(),
+            "worker_flavor_name": flavor_tmp["flavor"]["name"],
+            "upscale_count": upscale_limit,
+            "version": VERSION,
+        }
+        logger.debug(
+            "track upscale limit level %s: %s  - start limit", level, upscale_limit
+        )
         logger.debug("scale-up-data: \n%s", pformat(scale_up_data))
     logger.debug("claimed worker %s", worker_claimed)
     # log upper limit + changes by time + average jobs per flavor
     if upscale_limit <= 0 or not flavor_tmp:
         logger.debug("calculated upscale_limit is %d", upscale_limit)
-        logger.info("calculated upscale_limit is 0 or missing flavor '%s', skip",
-                    flavor_tmp['flavor']['name'])
+        logger.info(
+            "calculated upscale_limit is 0 or missing flavor '%s', skip",
+            flavor_tmp["flavor"]["name"],
+        )
         return None, worker_memory_usage
     logger.debug("track upscale limit level %s: %s  - final", level, upscale_limit)
     worker_memory_usage_tmp = worker_memory_usage + fv_mem * upscale_limit
@@ -3323,23 +4054,27 @@ def __calc_job_time_norm(job_time_sum, job_num):
     try:
         job_time_sum = int(job_time_sum)
         job_num = int(job_num)
-        time_range_max = int(config_data['time_range_max'])
-        time_range_min = int(config_data['time_range_min'])
+        time_range_max = int(config_data["time_range_max"])
+        time_range_min = int(config_data["time_range_min"])
 
         if job_num > 0 and job_time_sum > 1:
             job_time_average = __division_round(job_time_sum, job_num)
-            norm = float(job_time_average - time_range_min) / float(time_range_max - time_range_min)
+            norm = float(job_time_average - time_range_min) / float(
+                time_range_max - time_range_min
+            )
 
             if norm <= border_min:
                 return float(border_min)
             return norm
 
     except ZeroDivisionError:
-        logger.debug('cannot divide by zero, unusable data')
+        logger.debug("cannot divide by zero, unusable data")
     return float(border_min)
 
 
-def __multiscale_scale_down(scale_state, worker_json, worker_count, worker_free, jobs_pending_dict, dummy_worker):
+def __multiscale_scale_down(
+    scale_state, worker_json, worker_count, worker_free, jobs_pending_dict, dummy_worker
+):
     """
     Scale down part from multiscale.
     :param scale_state: current scale state
@@ -3350,14 +4085,18 @@ def __multiscale_scale_down(scale_state, worker_json, worker_count, worker_free,
     :param dummy_worker: dummy worker data
     :return: new scale state
     """
-    worker_down_cnt = __calculate_scale_down_value(worker_count, worker_free, scale_state)
+    worker_down_cnt = __calculate_scale_down_value(
+        worker_count, worker_free, scale_state
+    )
     # maximum worker count to scale down
 
     if scale_state == ScaleState.DELAY:
         scale_state = ScaleState.DOWN
-        time.sleep(int(config_mode['scale_delay']))
+        time.sleep(int(config_mode["scale_delay"]))
     elif scale_state == ScaleState.DOWN:
-        cluster_scale_down_specific(worker_json, worker_down_cnt, Rescale.CHECK, jobs_pending_dict, dummy_worker)
+        cluster_scale_down_specific(
+            worker_json, worker_down_cnt, Rescale.CHECK, jobs_pending_dict, dummy_worker
+        )
         scale_state = ScaleState.DONE
     else:
         scale_state = ScaleState.SKIP
@@ -3396,13 +4135,23 @@ def __compare_custer_node_workers(cluster_workers, worker_json):
     try:
         if cluster_workers is not None:
             for c_worker in cluster_workers:
-                cluster_worker_list.append(c_worker['hostname'])
-            logger.debug("cluster_workers %s, worker_json %s", cluster_worker_list, worker_json.keys())
-            worker_missing = list(set(cluster_worker_list).difference(list(worker_json.keys())))
+                cluster_worker_list.append(c_worker["hostname"])
+            logger.debug(
+                "cluster_workers %s, worker_json %s",
+                cluster_worker_list,
+                worker_json.keys(),
+            )
+            worker_missing = list(
+                set(cluster_worker_list).difference(list(worker_json.keys()))
+            )
             if worker_missing:
                 logger.debug("found missing workers in node data %s", worker_missing)
     except AttributeError:
-        logger.debug("received broken data, cluster_workers: %s, worker_json: %s", cluster_workers, worker_json)
+        logger.debug(
+            "received broken data, cluster_workers: %s, worker_json: %s",
+            cluster_workers,
+            worker_json,
+        )
     return worker_missing
 
 
@@ -3415,11 +4164,17 @@ def __scale_down_error_workers(worker_err_list, dummy_worker):
     :return:
     """
     if worker_err_list:
-        logger.error("found %s broken workers on cluster, no state change %s in %s", len(worker_err_list),
-                     worker_err_list, config_mode['scale_delay'])
+        logger.error(
+            "found %s broken workers on cluster, no state change %s in %s",
+            len(worker_err_list),
+            worker_err_list,
+            config_mode["scale_delay"],
+        )
         time.sleep(WAIT_CLUSTER_SCALING)
-        cluster_scale_down_specific_self_check(worker_err_list, Rescale.CHECK, dummy_worker)
-        __csv_log_entry('E', '0', '0')
+        cluster_scale_down_specific_self_check(
+            worker_err_list, Rescale.CHECK, dummy_worker
+        )
+        __csv_log_entry("E", "0", "0")
 
 
 def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
@@ -3438,12 +4193,18 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
         logger.debug("cluster worker data is empty")
     worker_missing = __check_cluster_node_workers(cluster_workers, worker_json)
 
-    error_states = [WORKER_ERROR, WORKER_PLANNED, WORKER_PORT_CLOSED, WORKER_PLANNED, WORKER_SCHEDULING]
+    error_states = [
+        WORKER_ERROR,
+        WORKER_PLANNED,
+        WORKER_PORT_CLOSED,
+        WORKER_PLANNED,
+        WORKER_SCHEDULING,
+    ]
     worker_cluster_err_list = []
     for clt in cluster_workers:
-        logger.debug("cluster worker: %s, state %s", clt['hostname'], clt['status'])
-        if any(ele in clt['status'] for ele in error_states):
-            worker_cluster_err_list.append(clt['hostname'])
+        logger.debug("cluster worker: %s, state %s", clt["hostname"], clt["status"])
+        if any(ele in clt["status"] for ele in error_states):
+            worker_cluster_err_list.append(clt["hostname"])
     logger.debug("cluster workers, error list: %s", worker_cluster_err_list)
     error_worker_list = worker_missing + worker_cluster_err_list
     if error_worker_list:
@@ -3464,23 +4225,36 @@ def __worker_same_states(worker_json, worker_copy):
     if worker_copy is None:
         worker_copy = {}
         for key, value in worker_json.items():
-            if 'worker' in key:
+            if "worker" in key:
                 worker_copy[key] = value
         return worker_copy
 
     worker_copy_tmp = {}
     for key, value in worker_json.items():
         if key in worker_copy:
-            if value['state'] == worker_copy[key]['state']:
+            if value["state"] == worker_copy[key]["state"]:
                 worker_copy_tmp[key] = value
-                logger.debug("%s state: %s vs %s - state no change", key, value['state'], worker_copy[key]['state'])
-            elif NODE_IDLE in value['state'] and NODE_DRAIN in value['state']:
+                logger.debug(
+                    "%s state: %s vs %s - state no change",
+                    key,
+                    value["state"],
+                    worker_copy[key]["state"],
+                )
+            elif NODE_IDLE in value["state"] and NODE_DRAIN in value["state"]:
                 worker_copy_tmp[key] = value
-                logger.debug("%s state: %s vs %s - state recently changed, exception worker idle & drain!",
-                             key, value['state'], worker_copy[key]['state'])
+                logger.debug(
+                    "%s state: %s vs %s - state recently changed, exception worker idle & drain!",
+                    key,
+                    value["state"],
+                    worker_copy[key]["state"],
+                )
             else:
-                logger.debug("%s state: %s vs %s - state recently changed or keep alive", key, value['state'],
-                             worker_copy[key]['state'])
+                logger.debug(
+                    "%s state: %s vs %s - state recently changed or keep alive",
+                    key,
+                    value["state"],
+                    worker_copy[key]["state"],
+                )
     return worker_copy_tmp
 
 
@@ -3499,17 +4273,23 @@ def multiscale(flavor_data, dummy_worker):
     changed_data = False
     scale_down_value = 0
     drained = False
-    drain_large_nodes = config_mode['drain_large_nodes']
-    scale_delay = int(config_mode['scale_delay'])
+    drain_large_nodes = config_mode["drain_large_nodes"]
+    scale_delay = int(config_mode["scale_delay"])
     if flavor_data is None:
         return
     cluster_data = get_cluster_data()
     while state not in (ScaleState.SKIP, ScaleState.DONE):
         jobs_pending_dict, jobs_running_dict = receive_job_data()
         jobs_pending = len(jobs_pending_dict)
-        worker_json, worker_count, worker_in_use_list, worker_drain, _ = receive_node_data_db(True)
+        (
+            worker_json,
+            worker_count,
+            worker_in_use_list,
+            worker_drain,
+            _,
+        ) = receive_node_data_db(True)
         worker_in_use = len(worker_in_use_list)
-        worker_free = (worker_count - worker_in_use)
+        worker_free = worker_count - worker_in_use
 
         # cluster configuration may be broken
         if worker_json is None:
@@ -3519,14 +4299,22 @@ def multiscale(flavor_data, dummy_worker):
 
         if state == ScaleState.DELAY:
             # check for broken workers at cluster first
-            cluster_workers = __verify_cluster_workers(get_cluster_workers(cluster_data), worker_json, dummy_worker)
+            cluster_workers = __verify_cluster_workers(
+                get_cluster_workers(cluster_data), worker_json, dummy_worker
+            )
             if cluster_workers is None:
                 state = ScaleState.SKIP
                 logger.error("unable to receive cluster workers")
                 continue
             if drain_large_nodes and jobs_pending > 0 and not drained:
-                if set_nodes_to_drain(jobs_pending_dict, worker_json, flavor_data, cluster_workers, jobs_running_dict,
-                                      dummy_worker):
+                if set_nodes_to_drain(
+                    jobs_pending_dict,
+                    worker_json,
+                    flavor_data,
+                    cluster_workers,
+                    jobs_running_dict,
+                    dummy_worker,
+                ):
                     # update data after drain + scale down
                     cluster_data = get_cluster_data()
                     drained = True
@@ -3535,21 +4323,45 @@ def multiscale(flavor_data, dummy_worker):
         # create worker copy, only delete workers after a delay, give scheduler and network time to activate
         worker_copy = __worker_same_states(worker_json, worker_copy)
 
-        logger.info("worker_count: %s worker_in_use: %s worker_idle: %s jobs_pending: %s", worker_count,
-                    worker_in_use, worker_free, jobs_pending)
+        logger.info(
+            "worker_count: %s worker_in_use: %s worker_idle: %s jobs_pending: %s",
+            worker_count,
+            worker_in_use,
+            worker_free,
+            jobs_pending,
+        )
         if worker_count == 0 and jobs_pending > 0 and not state == ScaleState.FORCE_UP:
             state = ScaleState.FORCE_UP
             logger.debug("zero worker and jobs pending, force up")
         # SCALE DOWN
-        elif worker_count > DOWNSCALE_LIMIT and worker_in_use == 0 and jobs_pending == 0:
+        elif (
+            worker_count > DOWNSCALE_LIMIT and worker_in_use == 0 and jobs_pending == 0
+        ):
             # workers are not in use and not reached DOWNSCALE_LIMIT
             logger.info("---- SCALE DOWN - DELETE: workers are not in use")
-            state = __multiscale_scale_down(state, worker_copy, worker_count, worker_free, jobs_pending_dict,
-                                            dummy_worker)
-        elif worker_count > DOWNSCALE_LIMIT and worker_free >= 1 and worker_in_use > 0 and jobs_pending == 0:
+            state = __multiscale_scale_down(
+                state,
+                worker_copy,
+                worker_count,
+                worker_free,
+                jobs_pending_dict,
+                dummy_worker,
+            )
+        elif (
+            worker_count > DOWNSCALE_LIMIT
+            and worker_free >= 1
+            and worker_in_use > 0
+            and jobs_pending == 0
+        ):
             logger.info("---- SCALE DOWN - DELETE: workers are free, zero jobs pending")
-            state = __multiscale_scale_down(state, worker_copy, worker_count, worker_free, jobs_pending_dict,
-                                            dummy_worker)
+            state = __multiscale_scale_down(
+                state,
+                worker_copy,
+                worker_count,
+                worker_free,
+                jobs_pending_dict,
+                dummy_worker,
+            )
         # SCALE DOWN and UP
         elif worker_free > 0 and jobs_pending >= 1 and not state == ScaleState.FORCE_UP:
             # -> SCALE DOWN - delete free worker with too low resources
@@ -3557,13 +4369,23 @@ def multiscale(flavor_data, dummy_worker):
             logger.info("---- SCALE DOWN_UP - worker idle and jobs pending ----")
             if state == ScaleState.DOWN_UP:
                 logger.info("---- SCALE DOWN_UP - cluster scale down ----")
-                scale_down_value = __calculate_scale_down_value(worker_count, worker_free, state)
-                changed_data = cluster_scale_down_specific(worker_copy,
-                                                           scale_down_value,
-                                                           Rescale.NONE, jobs_pending_dict, dummy_worker)
+                scale_down_value = __calculate_scale_down_value(
+                    worker_count, worker_free, state
+                )
+                changed_data = cluster_scale_down_specific(
+                    worker_copy,
+                    scale_down_value,
+                    Rescale.NONE,
+                    jobs_pending_dict,
+                    dummy_worker,
+                )
                 if not changed_data:
                     scale_down_value = 0
-                logger.debug("scale_down_value %s, changed_data %s", scale_down_value, changed_data)
+                logger.debug(
+                    "scale_down_value %s, changed_data %s",
+                    scale_down_value,
+                    changed_data,
+                )
                 # skip one reconfigure at FORCE_UP
                 state = ScaleState.FORCE_UP
             elif state == ScaleState.DELAY:
@@ -3574,7 +4396,9 @@ def multiscale(flavor_data, dummy_worker):
                 state = ScaleState.SKIP
                 logger.info("---- SCALE DOWN_UP - condition changed - skip ----")
         # SCALE UP
-        elif (worker_count == worker_in_use and jobs_pending >= 1) or state == ScaleState.FORCE_UP:
+        elif (
+            worker_count == worker_in_use and jobs_pending >= 1
+        ) or state == ScaleState.FORCE_UP:
             # if all workers are in use and jobs pending and jobs require more time
             logger.info("---- SCALE UP - all workers are in use with pending jobs ----")
             if not flavor_data:
@@ -3586,14 +4410,34 @@ def multiscale(flavor_data, dummy_worker):
                 time.sleep(scale_delay)
                 # speed up scale-up without delay
             elif state == ScaleState.UP:
-                cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_json, worker_drain, state,
-                                 flavor_data, cluster_workers, dummy_worker)
+                cluster_scale_up(
+                    jobs_pending_dict,
+                    jobs_running_dict,
+                    worker_count,
+                    worker_json,
+                    worker_drain,
+                    state,
+                    flavor_data,
+                    cluster_workers,
+                    dummy_worker,
+                )
                 state = ScaleState.DONE
             elif state == ScaleState.FORCE_UP:
                 logger.debug("---- SCALE UP - force scale up ----")
-                if not cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count - scale_down_value,
-                                        worker_json, worker_drain, state,
-                                        flavor_data, cluster_workers, dummy_worker) and changed_data:
+                if (
+                    not cluster_scale_up(
+                        jobs_pending_dict,
+                        jobs_running_dict,
+                        worker_count - scale_down_value,
+                        worker_json,
+                        worker_drain,
+                        state,
+                        flavor_data,
+                        cluster_workers,
+                        dummy_worker,
+                    )
+                    and changed_data
+                ):
                     # prevent unnecessary two rescales during scale down and up
                     # cluster data changed by scale down, but no scale up was possible
 
@@ -3602,7 +4446,9 @@ def multiscale(flavor_data, dummy_worker):
 
                 state = ScaleState.DONE
             else:
-                logger.info("---- SCALE UP - condition changed - skip ---- %s", state.name)
+                logger.info(
+                    "---- SCALE UP - condition changed - skip ---- %s", state.name
+                )
                 state = ScaleState.SKIP
         else:
             if state in (ScaleState.UP, ScaleState.DOWN):
@@ -3613,16 +4459,26 @@ def multiscale(flavor_data, dummy_worker):
 
 
 def __cloud_api_(portal_url_scale, worker_data):
+    logger.debug(f"---Scaling -- {portal_url_scale}\n\n\t {worker_data}")
     response = requests.post(url=portal_url_scale, json=worker_data)
-    response.raise_for_status()
+    logger.debug(response.raise_for_status())
     logger.info("response code: %s, message: %s", response.status_code, response.text)
 
-    with open(CLUSTER_PASSWORD_FILE, 'w', encoding='utf8') as f:
-        f.write(response.text)
+    try:
+        response_json = response.json()
+        if "password" in response_json:
+            password = response_json["password"]
+            logger.debug(f"Set New Password: {password}")
+            with open(CLUSTER_PASSWORD_FILE, "w", encoding="utf8") as f:
+                f.write(response_json)
+        else:
+            logger.debug("No password found in the response.")
+    except json.JSONDecodeError:
+        logger.debug("Invalid JSON response.")
 
 
 def __sleep_on_server_error():
-    sleep_time = int(config_mode['service_frequency']) * WAIT_CLUSTER_SCALING
+    sleep_time = int(config_mode["service_frequency"]) * WAIT_CLUSTER_SCALING
     if not systemd_start:
         sleep_time = WAIT_CLUSTER_SCALING
     logger.error("server error, sleep %s seconds", sleep_time)
@@ -3661,7 +4517,7 @@ def cloud_api(portal_url_scale, worker_data):
             logger.error(get_wrong_password_msg())
         else:
             __sleep_on_server_error()
-        __csv_log_entry('E', 0, '13')
+        __csv_log_entry("E", 0, "13")
         return None
     except OSError as error:
         logger.error(error)
@@ -3671,8 +4527,17 @@ def cloud_api(portal_url_scale, worker_data):
         return None
 
 
-def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_json, worker_drain, state, flavor_data,
-                     cluster_worker, dummy_worker):
+def cluster_scale_up(
+    jobs_pending_dict,
+    jobs_running_dict,
+    worker_count,
+    worker_json,
+    worker_drain,
+    state,
+    flavor_data,
+    cluster_worker,
+    dummy_worker,
+):
     """
     scale up and rescale cluster with data generation
     skip if scale up data return None
@@ -3695,7 +4560,7 @@ def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_
         return False
     flavor_col_len = len(flavor_depth_list)
     data_list = []
-    flavor_depth = config_mode['flavor_depth']
+    flavor_depth = config_mode["flavor_depth"]
     upscale_cnt = 0  # number of started workers
     flavor_index_cnt = 0
     level_sup = False  # last level scale up
@@ -3705,7 +4570,9 @@ def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_
 
     skip_starts = False  # skip starts if life count detected from previous level
     while flavor_col_len > flavor_index_cnt:  # and not data
-        jobs_pending_flavor, flavor_next, flavor_job_list = flavor_depth_list[flavor_index_cnt]
+        jobs_pending_flavor, flavor_next, flavor_job_list = flavor_depth_list[
+            flavor_index_cnt
+        ]
         if not flavor_next:
             flavor_index_cnt += 1
             continue
@@ -3714,23 +4581,28 @@ def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_
         if level_sup and not skip_starts:
             # wait and recheck flavor data if workers started on previous level index
             time.sleep(WAIT_CLUSTER_SCALING)
-            flavor_data = get_usable_flavors(True, True)  # check if available flavor count changed
+            flavor_data = get_usable_flavors(
+                True, True
+            )  # check if available flavor count changed
             level_sup = False
 
-        data_tmp, worker_memory_usage_tmp = __calculate_scale_up_data(flavor_job_list,
-                                                                      jobs_pending_flavor,
-                                                                      worker_count,
-                                                                      worker_json, worker_drain,
-                                                                      state,
-                                                                      flavor_data,
-                                                                      flavor_next,
-                                                                      flavor_index_cnt,
-                                                                      worker_memory_usage,
-                                                                      jobs_running_dict,
-                                                                      cluster_worker,
-                                                                      flavors_started_cnt,
-                                                                      flavor_col_len - flavor_index_cnt - 1,
-                                                                      worker_claimed)
+        data_tmp, worker_memory_usage_tmp = __calculate_scale_up_data(
+            flavor_job_list,
+            jobs_pending_flavor,
+            worker_count,
+            worker_json,
+            worker_drain,
+            state,
+            flavor_data,
+            flavor_next,
+            flavor_index_cnt,
+            worker_memory_usage,
+            jobs_running_dict,
+            cluster_worker,
+            flavors_started_cnt,
+            flavor_col_len - flavor_index_cnt - 1,
+            worker_claimed,
+        )
         # multi-start
         if data_tmp:
             data_list.append(data_tmp)
@@ -3738,14 +4610,20 @@ def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_
                 if cloud_api(get_url_scale_up(), data_tmp):
                     logger.debug("start workers for level %s", flavor_index_cnt)
                     worker_memory_usage = worker_memory_usage_tmp
-                    upscale_cnt += data_tmp['upscale_count']
-                    worker_count += data_tmp['upscale_count']
+                    upscale_cnt += data_tmp["upscale_count"]
+                    worker_count += data_tmp["upscale_count"]
                     flavors_started_cnt += 1
                     level_sup = True
                 else:
-                    logger.debug("starting workers via API failed for level %s", flavor_index_cnt)
-        logger.debug("flavor data generation for future jobs level: %s data: %s claimed %s", flavor_index_cnt, data_tmp,
-                     worker_claimed)
+                    logger.debug(
+                        "starting workers via API failed for level %s", flavor_index_cnt
+                    )
+        logger.debug(
+            "flavor data generation for future jobs level: %s data: %s claimed %s",
+            flavor_index_cnt,
+            data_tmp,
+            worker_claimed,
+        )
         flavor_index_cnt += 1
     time_now = __get_time()
 
@@ -3753,12 +4631,16 @@ def cluster_scale_up(jobs_pending_dict, jobs_running_dict, worker_count, worker_
         rescale_cluster(worker_count, dummy_worker)
         rescale_time = __get_time() - time_now
         if state == ScaleState.FORCE_UP:
-            __csv_log_entry('U', upscale_cnt, '8')
+            __csv_log_entry("U", upscale_cnt, "8")
         else:
-            __csv_log_entry('U', upscale_cnt, '5')
+            __csv_log_entry("U", upscale_cnt, "5")
 
-        logger.info("scale up started %s worker with %s different flavor in %s seconds",
-                    upscale_cnt, flavors_started_cnt, rescale_time)
+        logger.info(
+            "scale up started %s worker with %s different flavor in %s seconds",
+            upscale_cnt,
+            flavors_started_cnt,
+            rescale_time,
+        )
         return True
     return False
 
@@ -3771,9 +4653,11 @@ def cluster_scale_down_specific_hostnames(hostnames, rescale, dummy_worker):
     :param dummy_worker: dummy worker data
     :return:
     """
-    worker_hostnames = '[' + hostnames + ']'
+    worker_hostnames = "[" + hostnames + "]"
     logger.debug(hostnames)
-    return cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_worker)
+    return cluster_scale_down_specific_hostnames_list(
+        worker_hostnames, rescale, dummy_worker
+    )
 
 
 def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_worker):
@@ -3796,11 +4680,19 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_work
     for wb in worker_hostnames:
         if wb in worker_json:
             if wb not in worker_drain_idle:
-                if NODE_ALLOCATED in worker_json[wb]['state'] or NODE_MIX in worker_json[wb]['state']:
-                    logger.debug("safety check: worker allocated, rescue worker %s, state %s ! ", wb,
-                                 worker_json[wb]['state'])
+                if (
+                    NODE_ALLOCATED in worker_json[wb]["state"]
+                    or NODE_MIX in worker_json[wb]["state"]
+                ):
+                    logger.debug(
+                        "safety check: worker allocated, rescue worker %s, state %s ! ",
+                        wb,
+                        worker_json[wb]["state"],
+                    )
                 else:
-                    logger.debug("worker %s added with state  %s", wb, worker_json[wb]['state'])
+                    logger.debug(
+                        "worker %s added with state  %s", wb, worker_json[wb]["state"]
+                    )
                     scale_down_list.append(wb)
             else:
                 logger.debug("worker marked as idle and drain %s", wb)
@@ -3809,11 +4701,21 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_work
             logger.debug("not in scheduler worker list %s", wb)
             scale_down_list.append(wb)
 
-    logger.debug("last scale down check: available:\n%s\nidle %s:\n%s\nreceived %s:\n%s\nresult %s:\n%s, rescale %s",
-                 worker_json.keys(), len(worker_drain_idle), worker_drain_idle, len(worker_hostnames), worker_hostnames,
-                 len(scale_down_list), scale_down_list, rescale)
+    logger.debug(
+        "last scale down check: available:\n%s\nidle %s:\n%s\nreceived %s:\n%s\nresult %s:\n%s, rescale %s",
+        worker_json.keys(),
+        len(worker_drain_idle),
+        worker_drain_idle,
+        len(worker_hostnames),
+        worker_hostnames,
+        len(scale_down_list),
+        scale_down_list,
+        rescale,
+    )
 
-    return cluster_scale_down_specific_hostnames_list(scale_down_list, rescale, dummy_worker)
+    return cluster_scale_down_specific_hostnames_list(
+        scale_down_list, rescale, dummy_worker
+    )
 
 
 def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_worker):
@@ -3824,29 +4726,38 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     :param dummy_worker: dummy worker data
     :return: success
     """
-    logger.debug("scale down %s worker, list: %s", len(worker_hostnames), worker_hostnames)
+    logger.debug(
+        "scale down %s worker, list: %s", len(worker_hostnames), worker_hostnames
+    )
 
     if not worker_hostnames:
         return False
 
-    data = {"password": __get_cluster_password(),
-            "worker_hostnames": worker_hostnames, "version": VERSION}
+    data = {
+        "password": __get_cluster_password(),
+        "worker_hostnames": worker_hostnames,
+        "version": VERSION,
+    }
     logger.debug("portal_url_scaledown_specific: %s", get_url_scale_down_specific())
-    logger.debug("\nparams send: \n%s", json.dumps(data, indent=4, sort_keys=True) + "\n")
+    logger.debug(
+        "\nparams send: \n%s", json.dumps(data, indent=4, sort_keys=True) + "\n"
+    )
     result_ = True
     if cloud_api(get_url_scale_down_specific(), data) is not None:
         if rescale == Rescale.CHECK:
             result_ = rescale_cluster(0, dummy_worker)
         elif rescale == Rescale.INIT:
             result_ = rescale_init(None, dummy_worker)
-        __csv_log_entry('D', len(worker_hostnames), '3')
+        __csv_log_entry("D", len(worker_hostnames), "3")
     else:
-        __csv_log_entry('D', len(worker_hostnames), '4')
+        __csv_log_entry("D", len(worker_hostnames), "4")
         result_ = False
     return result_
 
 
-def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict, dummy_worker):
+def cluster_scale_down_specific(
+    worker_json, worker_num, rescale, jobs_dict, dummy_worker
+):
     """
     scale down a specific number of workers, downscale list is self generated
     :param jobs_dict: jobs dictionary with pending jobs
@@ -3866,7 +4777,9 @@ def __cluster_scale_down_complete():
     :return: boolean, success
     """
     worker_json, worker_count, _, _, _ = receive_node_data_db(False)
-    return cluster_scale_down_specific(worker_json, worker_count, Rescale.CHECK, None, None)
+    return cluster_scale_down_specific(
+        worker_json, worker_count, Rescale.CHECK, None, None
+    )
 
 
 def __cluster_shut_down():
@@ -3878,13 +4791,15 @@ def __cluster_shut_down():
     worker_list = []
     if cluster_workers is not None:
         for cl in cluster_workers:
-            if 'worker' in cl['hostname']:
-                logger.debug("delete worker %s", cl['hostname'])
-                worker_list.append(cl['hostname'])
+            if "worker" in cl["hostname"]:
+                logger.debug("delete worker %s", cl["hostname"])
+                worker_list.append(cl["hostname"])
         if worker_list:
             logger.info("scale down %s", worker_list)
             time.sleep(WAIT_CLUSTER_SCALING)
-            return cluster_scale_down_specific_hostnames_list(worker_list, Rescale.CHECK, None)
+            return cluster_scale_down_specific_hostnames_list(
+                worker_list, Rescale.CHECK, None
+            )
     return False
 
 
@@ -3901,14 +4816,20 @@ def rescale_cluster(worker_count, dummy_worker):
         logger.debug("initiate rescale, wait %s seconds", WAIT_CLUSTER_SCALING)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-    no_error_scale, cluster_data = check_workers(Rescale.NONE, worker_count, dummy_worker)
+    no_error_scale, cluster_data = check_workers(
+        Rescale.NONE, worker_count, dummy_worker
+    )
     rescale_success = rescale_init(cluster_data, dummy_worker)
     if not rescale_success:
         worker_json, _, _, _, _ = receive_node_data_db(False)
-        worker_err_list = __check_cluster_node_workers(get_cluster_workers_from_api(), worker_json)
+        worker_err_list = __check_cluster_node_workers(
+            get_cluster_workers_from_api(), worker_json
+        )
         if worker_err_list:
-            cluster_scale_down_specific_self_check(worker_err_list, Rescale.NONE, dummy_worker)
-            __csv_log_entry('E', '0', '20')
+            cluster_scale_down_specific_self_check(
+                worker_err_list, Rescale.NONE, dummy_worker
+            )
+            __csv_log_entry("E", "0", "20")
             logger.error("playbook failed, possible server problem, wait 10 minutes")
             time.sleep(WAIT_CLUSTER_SCALING * 60)
     if no_error_scale and rescale_success:
@@ -3922,10 +4843,17 @@ def __cluster_scale_up_test(upscale_limit):
     :param upscale_limit: scale up number of workers
     :return:
     """
-    logger.info("----- test upscaling, start %d new worker nodes with %s -----", upscale_limit,
-                config_mode['flavor_default'])
-    up_scale_data = {"password": __get_cluster_password(), "worker_flavor_name": config_mode['flavor_default'],
-                     "upscale_count": upscale_limit, "version": VERSION}
+    logger.info(
+        "----- test upscaling, start %d new worker nodes with %s -----",
+        upscale_limit,
+        config_mode["flavor_default"],
+    )
+    up_scale_data = {
+        "password": __get_cluster_password(),
+        "worker_flavor_name": config_mode["flavor_default"],
+        "upscale_count": upscale_limit,
+        "version": VERSION,
+    }
     cloud_api(get_url_scale_up(), up_scale_data)
     rescale_cluster(0, None)
 
@@ -3939,9 +4867,17 @@ def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale, dummy_worke
     :param dummy_worker: dummy worker data
     :return: boolean, success
     """
-    logger.info("----- upscaling, start %d new worker nodes with %s -----", upscale_limit, flavor_name)
-    up_scale_data = {"password": __get_cluster_password(), "worker_flavor_name": flavor_name,
-                     "upscale_count": upscale_limit, "version": VERSION}
+    logger.info(
+        "----- upscaling, start %d new worker nodes with %s -----",
+        upscale_limit,
+        flavor_name,
+    )
+    up_scale_data = {
+        "password": __get_cluster_password(),
+        "worker_flavor_name": flavor_name,
+        "upscale_count": upscale_limit,
+        "version": VERSION,
+    }
     _, worker_count, _, _, _ = receive_node_data_live()
     if not cloud_api(get_url_scale_up(), up_scale_data):
         return False
@@ -3978,7 +4914,9 @@ def __start_service():
 
 
 def __print_help():
-    print(textwrap.dedent("""\
+    print(
+        textwrap.dedent(
+            """\
         Option      : Long option       :    Argument     : Meaning
         ----------------------------------------------------------------------------------
         _           :                   :                 : rescale with worker check
@@ -3987,7 +4925,7 @@ def __print_help():
         -fv         : -flavors          :                 : print available flavors
         -m          : -mode             :                 : activate mode from configuration
         -p          : -password         :                 : set cluster password
-        -rsc        : -rescale          :                 : run scaling with ansible playbook 
+        -rsc        : -rescale          :                 : run scaling with ansible playbook
         -s          : -service          :                 : run as service
         -i          : -ignore           :                 : ignore workers
         -sdc        : -scaledownchoice  :                 : scale down (worker id) - interactive mode
@@ -4004,12 +4942,16 @@ def __print_help():
                     : -visual           :                 : visualize log data (generate pdf)
                     : -visual           :"y-m-t-h:y-m-t-h": visualize log data by time range
                     : -clean            :                 : clean log data
-    """))
+    """
+        )
+    )
 
 
 def __print_help_debug():
     if LOG_LEVEL == logging.DEBUG:
-        print(textwrap.dedent("""\
+        print(
+            textwrap.dedent(
+                """\
         -cw         : -checkworker      :                 : check for broken worker
         -nd         : -node             :                 : receive node data
         -l          : -log              :                 : create csv log entry
@@ -4023,7 +4965,9 @@ def __print_help_debug():
         -t          : -test             :                 : test run
         -j          : -jobdata          :                 : print current job information
         -jh         : -jobhistory       :                 : print recent job history
-        """))
+        """
+            )
+        )
 
 
 def setup_logger(log_file):
@@ -4041,8 +4985,10 @@ def setup_logger(log_file):
         file_handler = RotatingFileHandler(log_file, maxBytes=1000000, backupCount=1)
 
     stream_handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s',
-                                  datefmt='%a, %d %b %Y %H:%M:%S')
+    formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)s [%(filename)s.%(funcName)s:%(lineno)d] %(message)s",
+        datefmt="%a, %d %b %Y %H:%M:%S",
+    )
     file_handler.setFormatter(formatter)
     stream_handler.setFormatter(formatter)
     logger_.addHandler(file_handler)
@@ -4059,66 +5005,68 @@ def create_pid_file():
     logger.debug("start with pid %s", pid)
     pidfile_ = AUTOSCALING_FOLDER + FILE_PID
     if os.path.isfile(pidfile_):
-        logger.critical("please terminate the running autoscaling process,\npid file already exist %s, exit\n",
-                        pidfile_)
+        logger.critical(
+            "please terminate the running autoscaling process,\npid file already exist %s, exit\n",
+            pidfile_,
+        )
         sys.exit(1)
-    open(pidfile_, 'w', encoding='utf8').write(pid)
+    open(pidfile_, "w", encoding="utf8").write(pid)
     return pidfile_
 
 
 def __example_configuration():
     config_example = {
-        'scaling': {
-            'portal_link': PORTAL_LINK,
-            'scheduler': 'slurm',
-            'active_mode': 'basic',
-            'automatic_update': True,
-            'database_reset': False,
-            'time_range_max': 1000,
-            'time_range_min': 1,
-            'pattern_id': '',
-            'history_recall': 7,
-            'ignore_workers': [],
-            'resource_sorting': True,
-            'mode': {
-                'basic': {
-                    'info': '',
-                    'service_frequency': 60,
-                    'limit_memory': 0,
-                    'limit_worker_starts': 10,
-                    'limit_workers': 0,
-                    'limit_flavor_usage': None,
-                    'scale_force': 0.6,
-                    'scale_delay': 60,
-                    'worker_cool_down': 60,
-                    'worker_weight': 0.00,
-                    'smoothing_coefficient': 0.00,
-                    'forecast_by_flavor_history': False,
-                    'forecast_by_job_history': False,
-                    'forecast_active_worker': 0,
-                    'forecast_occupied_worker': False,
-                    'job_match_value': 0.95,
-                    'job_time_threshold': 0.5,
-                    'job_name_remove_numbers': True,
-                    'job_name_remove_num_brackets': True,
-                    'job_name_remove_pattern': '',
-                    'job_name_remove_text_within_parentheses': True,
-                    'flavor_restriction': 0,
-                    'flavor_default': "",
-                    'flavor_ephemeral': True,
-                    'flavor_gpu': 1,
-                    'flavor_depth': 0,
-                    'large_flavors': False,
-                    'large_flavors_except_hmf': True,
-                    'auto_activate_large_flavors': 10,
-                    'drain_large_nodes': False,
-                    'drain_only_hmf': False,
-                    'drain_delay': 0,
-                    'scheduler_settings': 'PriorityType=priority/multifactor\nPriorityFavorSmall=NO'
-                                          '\nPriorityWeightJobSize=100000\nAccountingStorageTRES=cpu,mem,'
-                                          'gres/gpu\nPriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000\n '
+        "scaling": {
+            "portal_link": PORTAL_LINK,
+            "scheduler": "slurm",
+            "active_mode": "basic",
+            "automatic_update": True,
+            "database_reset": False,
+            "time_range_max": 1000,
+            "time_range_min": 1,
+            "pattern_id": "",
+            "history_recall": 7,
+            "ignore_workers": [],
+            "resource_sorting": True,
+            "mode": {
+                "basic": {
+                    "info": "",
+                    "service_frequency": 60,
+                    "limit_memory": 0,
+                    "limit_worker_starts": 10,
+                    "limit_workers": 0,
+                    "limit_flavor_usage": None,
+                    "scale_force": 0.6,
+                    "scale_delay": 60,
+                    "worker_cool_down": 60,
+                    "worker_weight": 0.00,
+                    "smoothing_coefficient": 0.00,
+                    "forecast_by_flavor_history": False,
+                    "forecast_by_job_history": False,
+                    "forecast_active_worker": 0,
+                    "forecast_occupied_worker": False,
+                    "job_match_value": 0.95,
+                    "job_time_threshold": 0.5,
+                    "job_name_remove_numbers": True,
+                    "job_name_remove_num_brackets": True,
+                    "job_name_remove_pattern": "",
+                    "job_name_remove_text_within_parentheses": True,
+                    "flavor_restriction": 0,
+                    "flavor_default": "",
+                    "flavor_ephemeral": True,
+                    "flavor_gpu": 1,
+                    "flavor_depth": 0,
+                    "large_flavors": False,
+                    "large_flavors_except_hmf": True,
+                    "auto_activate_large_flavors": 10,
+                    "drain_large_nodes": False,
+                    "drain_only_hmf": False,
+                    "drain_delay": 0,
+                    "scheduler_settings": "PriorityType=priority/multifactor\nPriorityFavorSmall=NO"
+                    "\nPriorityWeightJobSize=100000\nAccountingStorageTRES=cpu,mem,"
+                    "gres/gpu\nPriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000\n ",
                 }
-            }
+            },
         }
     }
     return config_example
@@ -4130,42 +5078,42 @@ def __setting_overwrite(mode_setting):
     test if all values are available
     """
     config_example = __example_configuration()
-    initial_mode = config_example['scaling']['active_mode']
+    initial_mode = config_example["scaling"]["active_mode"]
     yaml_config = read_config_yaml()
     if yaml_config is None:
         logger.error("missing configuration data, use -reset")
-        yaml_config = config_example['scaling']
+        yaml_config = config_example["scaling"]
     if mode_setting is None:
-        if yaml_config and 'active_mode' in yaml_config:
-            mode_setting = yaml_config['active_mode']
+        if yaml_config and "active_mode" in yaml_config:
+            mode_setting = yaml_config["active_mode"]
         else:
-            mode_setting = config_example['scaling']['active_mode']
+            mode_setting = config_example["scaling"]["active_mode"]
             logger.error("mode missing ... %s", mode_setting)
     logger.debug("loading mode settings ... %s", mode_setting)
 
-    for key in config_example['scaling']:
-        if key != 'mode' and key not in yaml_config:
-            yaml_config[key] = config_example['scaling'][key]
+    for key in config_example["scaling"]:
+        if key != "mode" and key not in yaml_config:
+            yaml_config[key] = config_example["scaling"][key]
             logger.debug("patch missing %s : %s", key, yaml_config[key])
 
-    if initial_mode not in yaml_config['mode']:
-        yaml_config['mode'].update({initial_mode: {}})
-    for key, val in config_example['scaling']['mode'][initial_mode].items():
+    if initial_mode not in yaml_config["mode"]:
+        yaml_config["mode"].update({initial_mode: {}})
+    for key, val in config_example["scaling"]["mode"][initial_mode].items():
         # add missing keys to default setting
-        if key not in yaml_config['mode'][initial_mode]:
-            yaml_config['mode'][initial_mode][key] = val
+        if key not in yaml_config["mode"][initial_mode]:
+            yaml_config["mode"][initial_mode][key] = val
             logger.debug("patch missing key %s in mode %s: %s", key, initial_mode, val)
 
-    if mode_setting in yaml_config['mode']:
-        for key, val in yaml_config['mode'][initial_mode].items():
+    if mode_setting in yaml_config["mode"]:
+        for key, val in yaml_config["mode"][initial_mode].items():
             # add missing keys to active mode setting
-            if key not in yaml_config['mode'][mode_setting]:
-                yaml_config['mode'][mode_setting][key] = val
+            if key not in yaml_config["mode"][mode_setting]:
+                yaml_config["mode"][mode_setting][key] = val
                 logger.debug("patch %s in mode %s: %s", key, mode_setting, val)
 
-        sconf = yaml_config['mode'][mode_setting]
-        if 'scheduler_settings' in sconf:
-            __update_playbook_scheduler_config(sconf['scheduler_settings'])
+        sconf = yaml_config["mode"][mode_setting]
+        if "scheduler_settings" in sconf:
+            __update_playbook_scheduler_config(sconf["scheduler_settings"])
         else:
             logger.debug("mode %s without scheduler parameters", mode_setting)
     else:
@@ -4196,12 +5144,14 @@ def __cluster_scale_up_choice():
                 flavor_num = int(flavor_num)
                 upscale_num = int(upscale_num)
                 if len(flavors_data) > flavor_num:
-                    flavor_available_cnt = flavors_data[flavor_num]['usable_count']
-                    flavor_name = flavors_data[flavor_num]['flavor']['name']
+                    flavor_available_cnt = flavors_data[flavor_num]["usable_count"]
+                    flavor_name = flavors_data[flavor_num]["flavor"]["name"]
                     if flavor_available_cnt >= upscale_num:
                         logger.info("scale up %s - %sx", flavor_name, upscale_num)
                         time.sleep(WAIT_CLUSTER_SCALING)
-                        __cluster_scale_up_specific(flavor_name, upscale_num, False, None)
+                        __cluster_scale_up_specific(
+                            flavor_name, upscale_num, False, None
+                        )
                         upscale_sum += upscale_num
                         flavor_names.append({flavor_name, upscale_num})
                     else:
@@ -4212,15 +5162,19 @@ def __cluster_scale_up_choice():
                 print("wrong values")
                 sys.exit(1)
         flavor_next = input("start another flavor? y/n: ")
-        print(flavor_next.startswith('y'))
+        print(flavor_next.startswith("y"))
         print(flavor_names)
-        if not flavor_next.startswith('y'):
+        if not flavor_next.startswith("y"):
             break
 
     if flavor_names:
         rescale_cluster(upscale_sum, None)
         rescale_time = __get_time() - time_now
-        logger.debug("scale up by choice success: flavors %s, %s seconds", flavor_names, rescale_time)
+        logger.debug(
+            "scale up by choice success: flavors %s, %s seconds",
+            flavor_names,
+            rescale_time,
+        )
 
 
 def __cluster_scale_down_choice_batch():
@@ -4234,26 +5188,38 @@ def __cluster_scale_down_choice_batch():
     search_batch = None
     if worker_dict:
         for index, (key, value) in enumerate(worker_dict.items()):
-            if 'worker' in key:
-                batch_id = key.split('-')[2]
-                logger.info("batch id: %s - key: %s - state: %s cpus %s real_memory %s",
-                            batch_id, json.dumps(key), json.dumps(value['state']),
-                            json.dumps(value['cpus']), json.dumps(value['real_memory']))
+            if "worker" in key:
+                batch_id = key.split("-")[2]
+                logger.info(
+                    "batch id: %s - key: %s - state: %s cpus %s real_memory %s",
+                    batch_id,
+                    json.dumps(key),
+                    json.dumps(value["state"]),
+                    json.dumps(value["cpus"]),
+                    json.dumps(value["real_memory"]),
+                )
         worker_num = input("enter worker batch id for scale-down: ")
         if worker_num.isnumeric():
             search_batch = "worker-" + worker_num + "-"
     if search_batch:
         for index, (key, value) in enumerate(worker_dict.items()):
             if search_batch in key:
-                logger.info("index %s key: %s - state: %s cpus %s real_memory %s",
-                            index, json.dumps(key), json.dumps(value['state']),
-                            json.dumps(value['cpus']), json.dumps(value['real_memory']))
+                logger.info(
+                    "index %s key: %s - state: %s cpus %s real_memory %s",
+                    index,
+                    json.dumps(key),
+                    json.dumps(value["state"]),
+                    json.dumps(value["cpus"]),
+                    json.dumps(value["real_memory"]),
+                )
                 scale_down_list.append(key)
 
         logger.info("generated scale-down list: %s", scale_down_list)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-        return cluster_scale_down_specific_hostnames_list(scale_down_list, Rescale.CHECK, None)
+        return cluster_scale_down_specific_hostnames_list(
+            scale_down_list, Rescale.CHECK, None
+        )
     return False
 
 
@@ -4268,10 +5234,15 @@ def __cluster_scale_down_choice():
     scale_down_list = []
     if worker_dict:
         for index, (key, value) in enumerate(worker_dict.items()):
-            if 'worker' in key:
-                logger.info("index %s key: %s - state: %s cpus %s real_memory %s",
-                            index, json.dumps(key), json.dumps(value['state']),
-                            json.dumps(value['cpus']), json.dumps(value['real_memory']))
+            if "worker" in key:
+                logger.info(
+                    "index %s key: %s - state: %s cpus %s real_memory %s",
+                    index,
+                    json.dumps(key),
+                    json.dumps(value["state"]),
+                    json.dumps(value["cpus"]),
+                    json.dumps(value["real_memory"]),
+                )
         while True:
             worker_num = input("enter worker batch id for scale-down: ")
             if not worker_num.isnumeric():
@@ -4279,13 +5250,15 @@ def __cluster_scale_down_choice():
             ids.append(int(worker_num))
 
         for index, (key, value) in enumerate(worker_dict.items()):
-            if 'worker' in key:
+            if "worker" in key:
                 if index in ids:
                     scale_down_list.append(key)
         logger.info("generated scale-down list: %s", scale_down_list)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-        return cluster_scale_down_specific_hostnames_list(scale_down_list, Rescale.CHECK, None)
+        return cluster_scale_down_specific_hostnames_list(
+            scale_down_list, Rescale.CHECK, None
+        )
     print("worker unavailable!")
     return False
 
@@ -4301,10 +5274,15 @@ def __worker_drain_choice():
     drain_list = []
     if worker_dict:
         for index, (key, value) in enumerate(worker_dict.items()):
-            if 'worker' in key:
-                logger.info("index %s key: %s - state: %s cpus %s real_memory %s",
-                            index, json.dumps(key), json.dumps(value['state']),
-                            json.dumps(value['cpus']), json.dumps(value['real_memory']))
+            if "worker" in key:
+                logger.info(
+                    "index %s key: %s - state: %s cpus %s real_memory %s",
+                    index,
+                    json.dumps(key),
+                    json.dumps(value["state"]),
+                    json.dumps(value["cpus"]),
+                    json.dumps(value["real_memory"]),
+                )
         while True:
             worker_num = input("worker index: ")
             if not worker_num.isnumeric():
@@ -4312,7 +5290,7 @@ def __worker_drain_choice():
             ids.append(int(worker_num))
 
         for index, (key, value) in enumerate(worker_dict.items()):
-            if 'worker' in key:
+            if "worker" in key:
                 if index in ids:
                     drain_list.append(key)
         logger.info("generated drain list: %s", drain_list)
@@ -4348,13 +5326,13 @@ def __run_as_service():
 def __log_watch():
     global logger
     if LOG_LEVEL == logging.DEBUG:
-        logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + '_csv.log')
+        logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + "_csv.log")
     time_ = 0
     while True:
         try:
             time_ = time.time()
-            __csv_log_entry('C', '0', '0')
-            time_ = (time.time() - time_)
+            __csv_log_entry("C", "0", "0")
+            time_ = time.time() - time_
             logger.debug("created clock log entry in %s seconds", time_)
         except KeyboardInterrupt:
             return
@@ -4368,7 +5346,7 @@ def __remove_file(file_path):
         try:
             os.remove(file_path)
         except OSError as e:
-            print("Error: %s - %s." % (e.filename, e.strerror))
+            print(f"Error: {e.filename} - {e.strerror}.")
 
 
 def __clean_log_data():
@@ -4388,9 +5366,9 @@ def __service(dummy_worker):
     :param dummy_worker: dummy worker data
     :return:
     """
-    wait_time = int(config_mode['service_frequency'])
-    forecast_by_flavor_history = config_mode['forecast_by_flavor_history']
-    forecast_by_job_history = config_mode['forecast_by_job_history']
+    wait_time = int(config_mode["service_frequency"])
+    forecast_by_flavor_history = config_mode["forecast_by_flavor_history"]
+    forecast_by_job_history = config_mode["forecast_by_job_history"]
     while True:
         logger.debug("=== INIT ===")
         check_config()
@@ -4411,7 +5389,11 @@ def __get_time():
     """
     :return: current time in seconds
     """
-    return int(str((datetime.datetime.now().replace(microsecond=0).timestamp())).split('.', maxsplit=1)[0])
+    return int(
+        str((datetime.datetime.now().replace(microsecond=0).timestamp())).split(
+            ".", maxsplit=1
+        )[0]
+    )
 
 
 def job_data_from_database(dict_db, flavor_name, job_name, multi_flavor):
@@ -4426,33 +5408,47 @@ def job_data_from_database(dict_db, flavor_name, job_name, multi_flavor):
     :return: dict_db
     """
     fv_name = __clear_flavor_name(flavor_name)
-    job_match_value = float(config_mode['job_match_value'])
+    job_match_value = float(config_mode["job_match_value"])
     logger.debug("search in history job %s, flavor %s", job_name, fv_name)
-    if fv_name in dict_db['flavor_name']:
-        for current_job in dict_db['flavor_name'][fv_name]['similar_data']:
+    if fv_name in dict_db["flavor_name"]:
+        for current_job in dict_db["flavor_name"][fv_name]["similar_data"]:
             diff_match = difflib.SequenceMatcher(None, job_name, current_job).ratio()
             if diff_match > job_match_value:
                 # found
-                logger.debug("diff_match %s, job_name %s current_job %s", diff_match, job_name, current_job)
-                return dict_db['flavor_name'][fv_name]['similar_data'][current_job]
+                logger.debug(
+                    "diff_match %s, job_name %s current_job %s",
+                    diff_match,
+                    job_name,
+                    current_job,
+                )
+                return dict_db["flavor_name"][fv_name]["similar_data"][current_job]
 
     if multi_flavor:
-        for flavor_tmp in dict_db['flavor_name']:
+        for flavor_tmp in dict_db["flavor_name"]:
             if flavor_tmp == fv_name:
                 continue
-            for current_job in dict_db['flavor_name'][flavor_tmp]['similar_data']:
-                diff_match = difflib.SequenceMatcher(None, job_name, current_job).ratio()
+            for current_job in dict_db["flavor_name"][flavor_tmp]["similar_data"]:
+                diff_match = difflib.SequenceMatcher(
+                    None, job_name, current_job
+                ).ratio()
                 if diff_match > job_match_value:
-                    logger.debug("diff_match %s, job_name %s current_job %s other flavor %s",
-                                 diff_match, job_name, current_job, flavor_tmp)
-                    return dict_db['flavor_name'][flavor_tmp]['similar_data'][current_job]
+                    logger.debug(
+                        "diff_match %s, job_name %s current_job %s other flavor %s",
+                        diff_match,
+                        job_name,
+                        current_job,
+                        flavor_tmp,
+                    )
+                    return dict_db["flavor_name"][flavor_tmp]["similar_data"][
+                        current_job
+                    ]
     return None
 
 
 def flavor_data_from_database(dict_db, flavor_name):
     fv_name = __clear_flavor_name(flavor_name)
-    if fv_name in dict_db['flavor_name']:
-        return dict_db['flavor_name'][fv_name]['fv_time_norm']
+    if fv_name in dict_db["flavor_name"]:
+        return dict_db["flavor_name"][fv_name]["fv_time_norm"]
     return None
 
 
@@ -4464,16 +5460,23 @@ def create_database(flavor_data):
     if flavor_data is None:
         logger.error("unable to receive flavor data")
         return None
-    time_start = __get_time() - __get_history_recall() * 86400  # config_data['history_init']
+    time_start = (
+        __get_time() - __get_history_recall() * 86400
+    )  # config_data['history_init']
 
-    dict_db = {'VERSION': VERSION, 'config_hash': config_hash, 'update_time': time_start, 'flavor_name': {}}
+    dict_db = {
+        "VERSION": VERSION,
+        "config_hash": config_hash,
+        "update_time": time_start,
+        "flavor_name": {},
+    }
     __save_file(DATABASE_FILE, dict_db)
     return dict_db
 
 
 def remove_suffix(input_string, suffix):
     if suffix and input_string.endswith(suffix):
-        return input_string[:-len(suffix)]
+        return input_string[: -len(suffix)]
     return input_string
 
 
@@ -4509,9 +5512,11 @@ def smooth_flavor_time(dict_db, current_flavor, smoothing_coefficient):
     :param current_flavor:
     :return: f_(t+1)
     """
-    f_t1 = smooth_time(dict_db['flavor_name'][current_flavor]['fv_time_norm'],
-                       dict_db['flavor_name'][current_flavor]['fv_time_avg'],
-                       smoothing_coefficient)
+    f_t1 = smooth_time(
+        dict_db["flavor_name"][current_flavor]["fv_time_norm"],
+        dict_db["flavor_name"][current_flavor]["fv_time_avg"],
+        smoothing_coefficient,
+    )
     logger.debug("exponential smoothing %s: f_t1 %s", current_flavor, f_t1)
     return f_t1
 
@@ -4526,8 +5531,7 @@ def smooth_time(f_t, current_time, smoothing_coefficient):
     :return: f_(t+1)
     """
 
-    a_t = __calc_job_time_norm(
-        current_time, 1)
+    a_t = __calc_job_time_norm(current_time, 1)
     f_t1 = __smoothing_it(a_t, f_t, smoothing_coefficient)
     return f_t1
 
@@ -4542,15 +5546,17 @@ def update_database(flavor_data):
     """
 
     dict_db = None
-    smoothing_coefficient = float(config_mode['smoothing_coefficient'])
-    job_match_value = float(config_mode['job_match_value'])
+    smoothing_coefficient = float(config_mode["smoothing_coefficient"])
+    job_match_value = float(config_mode["job_match_value"])
     # database file exist
     if os.path.exists(DATABASE_FILE):
         dict_db = __get_file(DATABASE_FILE)
         # create new database if config file changed to avoid incompatible settings
-        if dict_db and (dict_db['config_hash'] != config_hash or dict_db['VERSION'] != VERSION):
+        if dict_db and (
+            dict_db["config_hash"] != config_hash or dict_db["VERSION"] != VERSION
+        ):
             logger.info("config file changed")
-            if config_data['database_reset']:
+            if config_data["database_reset"]:
                 logger.info("recreate database")
                 dict_db = None
 
@@ -4561,82 +5567,119 @@ def update_database(flavor_data):
         logger.error("unable to receive flavor data")
         return dict_db
     current_time = __get_time()
-    last_update_time = int(dict_db['update_time'])
-    logger.debug("get jobs from %s to %s", int(dict_db['update_time']), current_time)
-    jobs_dict_new = receive_completed_job_data(1 + __division_round(current_time - last_update_time, 86400))
+    last_update_time = int(dict_db["update_time"])
+    logger.debug("get jobs from %s to %s", int(dict_db["update_time"]), current_time)
+    jobs_dict_new = receive_completed_job_data(
+        1 + __division_round(current_time - last_update_time, 86400)
+    )
     if not jobs_dict_new:
         return dict_db
-    dict_db['update_time'] = current_time
+    dict_db["update_time"] = current_time
     # add new sum and cnt values from jobs to dict
     for _, value in jobs_dict_new.items():
-        if value['state'] != JOB_FINISHED or int(value['end']) < last_update_time or value['elapsed'] < 0:
+        if (
+            value["state"] != JOB_FINISHED
+            or int(value["end"]) < last_update_time
+            or value["elapsed"] < 0
+        ):
             continue
         job_name = __clear_job_name(value)
-        v_tmp = translate_metrics_to_flavor(value['req_cpus'], value['req_mem'], value['tmp_disk'],
-                                            flavor_data, False, True)
-        job_time_tmp = __calc_job_time_norm(
-            value['elapsed'],
-            1
+        v_tmp = translate_metrics_to_flavor(
+            value["req_cpus"],
+            value["req_mem"],
+            value["tmp_disk"],
+            flavor_data,
+            False,
+            True,
         )
+        job_time_tmp = __calc_job_time_norm(value["elapsed"], 1)
         if v_tmp is not None:
-            fv_name = __clear_flavor_name(v_tmp['flavor']['name'])
+            fv_name = __clear_flavor_name(v_tmp["flavor"]["name"])
             found = False
             # flavor related - global normalized value
-            if fv_name not in dict_db['flavor_name']:
+            if fv_name not in dict_db["flavor_name"]:
                 # if not exist init flavor
                 logger.debug("init flavor in database %s", fv_name)
-                dict_db['flavor_name'].update(
-                    {fv_name: {'fv_time_norm': job_time_tmp,
-                               'fv_time_avg': value['elapsed'],
-                               'fv_time_sum': value['elapsed'],
-                               'fv_time_cnt': 1,
-                               'similar_data': {}
-                               }
-                     }
+                dict_db["flavor_name"].update(
+                    {
+                        fv_name: {
+                            "fv_time_norm": job_time_tmp,
+                            "fv_time_avg": value["elapsed"],
+                            "fv_time_sum": value["elapsed"],
+                            "fv_time_cnt": 1,
+                            "similar_data": {},
+                        }
+                    }
                 )
             else:
                 # update flavor related data
-                dict_db['flavor_name'][fv_name]['fv_time_cnt'] += 1
-                dict_db['flavor_name'][fv_name]['fv_time_sum'] += value['elapsed']
-                dict_db['flavor_name'][fv_name]['fv_time_avg'] = value['elapsed']
+                dict_db["flavor_name"][fv_name]["fv_time_cnt"] += 1
+                dict_db["flavor_name"][fv_name]["fv_time_sum"] += value["elapsed"]
+                dict_db["flavor_name"][fv_name]["fv_time_avg"] = value["elapsed"]
 
                 if smoothing_coefficient != 0:
-                    fv_norm = smooth_flavor_time(dict_db, fv_name, smoothing_coefficient)
+                    fv_norm = smooth_flavor_time(
+                        dict_db, fv_name, smoothing_coefficient
+                    )
                 else:
                     fv_norm = __calc_job_time_norm(
-                        dict_db['flavor_name'][fv_name]['fv_time_sum'],
-                        dict_db['flavor_name'][fv_name]['fv_time_cnt'])
-                dict_db['flavor_name'][fv_name]['fv_time_norm'] = fv_norm
+                        dict_db["flavor_name"][fv_name]["fv_time_sum"],
+                        dict_db["flavor_name"][fv_name]["fv_time_cnt"],
+                    )
+                dict_db["flavor_name"][fv_name]["fv_time_norm"] = fv_norm
 
             # update job related similar job data
-            for current_job in dict_db['flavor_name'][fv_name]['similar_data']:
+            for current_job in dict_db["flavor_name"][fv_name]["similar_data"]:
                 # logger.debug("update database job %s for %s flavor ...", current_job, fv_name)
-                diff_match = difflib.SequenceMatcher(None, job_name, current_job).ratio()
+                diff_match = difflib.SequenceMatcher(
+                    None, job_name, current_job
+                ).ratio()
                 if diff_match > job_match_value:
                     found = True
-                    job_cnt = int(dict_db['flavor_name'][fv_name]['similar_data'][current_job]['job_cnt']) + 1
-                    job_sum = dict_db['flavor_name'][fv_name]['similar_data'][current_job]['job_sum'] + value[
-                        'elapsed']
+                    job_cnt = (
+                        int(
+                            dict_db["flavor_name"][fv_name]["similar_data"][
+                                current_job
+                            ]["job_cnt"]
+                        )
+                        + 1
+                    )
+                    job_sum = (
+                        dict_db["flavor_name"][fv_name]["similar_data"][current_job][
+                            "job_sum"
+                        ]
+                        + value["elapsed"]
+                    )
                     if smoothing_coefficient != 0:
                         job_norm = smooth_time(
-                            dict_db['flavor_name'][fv_name]['similar_data'][current_job]['job_norm'],
-                            value['elapsed'], smoothing_coefficient)
+                            dict_db["flavor_name"][fv_name]["similar_data"][
+                                current_job
+                            ]["job_norm"],
+                            value["elapsed"],
+                            smoothing_coefficient,
+                        )
                     else:
-                        job_norm = __calc_job_time_norm(
-                            job_sum, job_cnt)
-                    dict_db['flavor_name'][fv_name]['similar_data'][current_job] = {
-                        'job_norm': job_norm,
-                        'job_elapsed': value['elapsed'],
-                        'job_sum': job_sum,
-                        'job_cnt': job_cnt
+                        job_norm = __calc_job_time_norm(job_sum, job_cnt)
+                    dict_db["flavor_name"][fv_name]["similar_data"][current_job] = {
+                        "job_norm": job_norm,
+                        "job_elapsed": value["elapsed"],
+                        "job_sum": job_sum,
+                        "job_cnt": job_cnt,
                     }
 
             if not found:
-                logger.debug("init job %s in database, elapsed %s", job_name, value['elapsed'])
-                dict_db['flavor_name'][fv_name]['similar_data'].update(
-                    {job_name: {'job_norm': job_time_tmp, 'job_elapsed': value['elapsed'],
-                                'job_sum': value['elapsed'],
-                                'job_cnt': 1}}
+                logger.debug(
+                    "init job %s in database, elapsed %s", job_name, value["elapsed"]
+                )
+                dict_db["flavor_name"][fv_name]["similar_data"].update(
+                    {
+                        job_name: {
+                            "job_norm": job_time_tmp,
+                            "job_elapsed": value["elapsed"],
+                            "job_sum": value["elapsed"],
+                            "job_cnt": 1,
+                        }
+                    }
                 )
         else:
             logger.error("missing flavor for job %s classification!", job_name)
@@ -4654,18 +5697,22 @@ def __clear_job_name(job_values):
     :return: modified job identifier as string
     """
 
-    if config_data['pattern_id'] and config_data['pattern_id'] in job_values and job_values[config_data['pattern_id']]:
-        job_name = str(job_values[config_data['pattern_id']])
+    if (
+        config_data["pattern_id"]
+        and config_data["pattern_id"] in job_values
+        and job_values[config_data["pattern_id"]]
+    ):
+        job_name = str(job_values[config_data["pattern_id"]])
     else:
-        job_name = job_values['jobname']
-        if config_mode['job_name_remove_num_brackets']:
-            job_name = re.sub(r'\(\d+\)', '', job_name)
-        if config_mode['job_name_remove_numbers']:
-            job_name = re.sub(r'\d+', '', job_name)
-        if config_mode['job_name_remove_pattern']:
-            job_name = re.sub(config_mode['job_name_remove_pattern'], '', job_name)
-        if config_mode['job_name_remove_text_within_parentheses']:
-            job_name = re.sub(r'\([^()]*\)', '', job_name)
+        job_name = job_values["jobname"]
+        if config_mode["job_name_remove_num_brackets"]:
+            job_name = re.sub(r"\(\d+\)", "", job_name)
+        if config_mode["job_name_remove_numbers"]:
+            job_name = re.sub(r"\d+", "", job_name)
+        if config_mode["job_name_remove_pattern"]:
+            job_name = re.sub(config_mode["job_name_remove_pattern"], "", job_name)
+        if config_mode["job_name_remove_text_within_parentheses"]:
+            job_name = re.sub(r"\([^()]*\)", "", job_name)
 
     return job_name
 
@@ -4678,7 +5725,9 @@ def version_check(version):
     :return:
     """
     if version != VERSION:
-        logger.warning(OUTDATED_SCRIPT_MSG.format(SCRIPT_VERSION=VERSION, LATEST_VERSION=version))
+        logger.warning(
+            OUTDATED_SCRIPT_MSG.format(SCRIPT_VERSION=VERSION, LATEST_VERSION=version)
+        )
         automatic_update()
 
 
@@ -4689,7 +5738,7 @@ def automatic_update():
     :return:
     """
     logger.error("wrong autoscaling version detected!")
-    if config_data['automatic_update']:
+    if config_data["automatic_update"]:
         logger.warning("I try to upgrade!")
         if not systemd_start:
             download_autoscaling()
@@ -4723,7 +5772,7 @@ def restart_systemd_service_request():
     Restart autoscaling service with restart request.
     """
     result = input("restart autoscaling service? y/n: ")
-    if result.startswith('y'):
+    if result.startswith("y"):
         restart_systemd_service()
 
 
@@ -4749,7 +5798,9 @@ def status_response_systemd_service():
     Print status response call from autoscaling service
     :return:
     """
-    get_status = subprocess.Popen("systemctl is-active autoscaling.service", shell=True, stdout=subprocess.PIPE).stdout
+    get_status = subprocess.Popen(
+        "systemctl is-active autoscaling.service", shell=True, stdout=subprocess.PIPE
+    ).stdout
     response = get_status.read().decode()
     print("autoscaling service: ", response)
 
@@ -4833,9 +5884,14 @@ def update_file(file_location, url, filename):
         logger.debug("download new  %s", filename)
         res = requests.get(url, allow_redirects=True)
         if res.status_code == HTTP_CODE_OK:
-            open(file_location, 'wb').write(res.content)
+            open(file_location, "wb").write(res.content)
             return True
-        logger.error("unable to update autoscaling %s from %s, status: %s", filename, url, res.status_code)
+        logger.error(
+            "unable to update autoscaling %s from %s, status: %s",
+            filename,
+            url,
+            res.status_code,
+        )
     except requests.exceptions.HTTPError as err:
         print("error code: ", err.response.status_code)
         print(err.response.text)
@@ -4874,7 +5930,7 @@ def function_test():
     fv_tmp = get_usable_flavors(False, True)
     if fv_tmp is not None:
         logger.debug("test scale up %s", fv_tmp[-1])
-        if not __cluster_scale_up_specific(fv_tmp[-1]['flavor']['name'], 1, True, None):
+        if not __cluster_scale_up_specific(fv_tmp[-1]["flavor"]["name"], 1, True, None):
             logger.error("unable to receive flavor data")
             result_ = False
         else:
@@ -4902,47 +5958,68 @@ def visualize_cluster_data(time_range):
     if time_range and os.path.exists(time_range):
         file_path = time_range
         print(file_path)
-    file_path_complete = file_path + '_' + 'visual.pdf'
+    file_path_complete = file_path + "_" + "visual.pdf"
     print("save to ", file_path_complete)
-    pdf = matplotlib.backends.backend_pdf.PdfPages(file_path + '_' + 'visual.pdf')
-    with open(file_path, newline='', encoding='utf8') as csv_file:
-        my_data = pd.read_csv(csv_file, sep=',', on_bad_lines='warn')
+    pdf = matplotlib.backends.backend_pdf.PdfPages(file_path + "_" + "visual.pdf")
+    with open(file_path, newline="", encoding="utf8") as csv_file:
+        my_data = pd.read_csv(csv_file, sep=",", on_bad_lines="warn")
 
     mem_scale = 1000000
     if time_range:
-        if ':' in time_range:
-            time_range = time_range.split(':')
-            start_time = list(map(int, time_range[0].split('-')))
+        if ":" in time_range:
+            time_range = time_range.split(":")
+            start_time = list(map(int, time_range[0].split("-")))
             start_time = calendar.timegm(
-                datetime.datetime(start_time[0], start_time[1], start_time[2], start_time[3], 0, 0).timetuple())
-            stop_time = list(map(int, time_range[1].split('-')))
+                datetime.datetime(
+                    start_time[0], start_time[1], start_time[2], start_time[3], 0, 0
+                ).timetuple()
+            )
+            stop_time = list(map(int, time_range[1].split("-")))
             stop_time = calendar.timegm(
-                datetime.datetime(stop_time[0], stop_time[1], stop_time[2], stop_time[3], 0, 0).timetuple())
-            print('requested: \nstart_time ', start_time,
-                  time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time)))
-            print('stop_time ', stop_time, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stop_time)))
-            print('available: \nstart_time', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(my_data.time[0])))
-            print('stop_time', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(my_data.time[my_data.index[-1]])))
+                datetime.datetime(
+                    stop_time[0], stop_time[1], stop_time[2], stop_time[3], 0, 0
+                ).timetuple()
+            )
+            print(
+                "requested: \nstart_time ",
+                start_time,
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)),
+            )
+            print(
+                "stop_time ",
+                stop_time,
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stop_time)),
+            )
+            print(
+                "available: \nstart_time",
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(my_data.time[0])),
+            )
+            print(
+                "stop_time",
+                time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(my_data.time[my_data.index[-1]])
+                ),
+            )
             my_data = my_data[(my_data.time > start_time) & (my_data.time < stop_time)]
 
     if my_data.empty:
         print("no data in this time range")
         return
-    my_data['date'] = my_data['time'].astype('datetime64[s]')
-    my_data['alloc'] = my_data['worker_mem_alloc'] / mem_scale
-    my_data['alloc_drain'] = my_data['worker_mem_alloc_drain'] / mem_scale
+    my_data["date"] = my_data["time"].astype("datetime64[s]")
+    my_data["alloc"] = my_data["worker_mem_alloc"] / mem_scale
+    my_data["alloc_drain"] = my_data["worker_mem_alloc_drain"] / mem_scale
 
-    my_data['mix'] = my_data['worker_mem_mix'] / mem_scale
-    my_data['mix_drain'] = my_data['worker_mem_mix_drain'] / mem_scale
-    my_data['idle_drain'] = my_data['worker_mem_idle_drain'] / mem_scale
-    my_data['idle'] = my_data['worker_mem_idle'] / mem_scale
+    my_data["mix"] = my_data["worker_mem_mix"] / mem_scale
+    my_data["mix_drain"] = my_data["worker_mem_mix_drain"] / mem_scale
+    my_data["idle_drain"] = my_data["worker_mem_idle_drain"] / mem_scale
+    my_data["idle"] = my_data["worker_mem_idle"] / mem_scale
 
-    my_data['job_alloc'] = my_data['jobs_mem_alloc'] / mem_scale
-    my_data['job_pending'] = my_data['jobs_mem_pending'] / mem_scale
+    my_data["job_alloc"] = my_data["jobs_mem_alloc"] / mem_scale
+    my_data["job_pending"] = my_data["jobs_mem_pending"] / mem_scale
 
-    pd.set_option('display.max_rows', 500)
-    pd.set_option('display.max_columns', 500)
-    pd.set_option('display.width', 1000)
+    pd.set_option("display.max_rows", 500)
+    pd.set_option("display.max_columns", 500)
+    pd.set_option("display.width", 1000)
 
     df = pd.DataFrame(my_data)
 
@@ -4955,106 +6032,185 @@ def visualize_cluster_data(time_range):
     fig, ax = plt.subplots(figsize=(width_, 5))
 
     bottom = 0
-    widths = np.diff(df['date'])
+    widths = np.diff(df["date"])
     widths = np.append(widths, widths[-1])
-    names = ['allocated', 'allocated + drain', 'mix', 'mix+drain', 'idle', 'idle+drain']
+    names = ["allocated", "allocated + drain", "mix", "mix+drain", "idle", "idle+drain"]
     cnt = 0
-    for col in ['alloc', 'alloc_drain', 'mix', 'mix_drain', 'idle', 'idle_drain']:
+    for col in ["alloc", "alloc_drain", "mix", "mix_drain", "idle", "idle_drain"]:
         if not df[col].eq(0.0).all(axis=0):
-            ax.bar(df['date'], df[col], bottom=bottom, width=widths, align='edge', alpha=0.4, label=names[cnt],
-                   color=plt.cm.tab10.colors[cnt])
+            ax.bar(
+                df["date"],
+                df[col],
+                bottom=bottom,
+                width=widths,
+                align="edge",
+                alpha=0.4,
+                label=names[cnt],
+                color=plt.cm.tab10.colors[cnt],
+            )
             bottom += df[col]
         cnt += 1
 
-    scale = my_data['worker_mem_alloc'].max() / mem_scale
-    df_jy = df[['job_alloc', 'job_pending']]
-    dfmark_a = df.loc[df['scale'] == 'A'].copy()
-    dfmark_u = df.loc[df['scale'] == 'U'].copy()
-    dfmark_d = df.loc[df['scale'] == 'D'].copy()
-    dfmark_m = df.loc[df['scale'] == 'M'].copy()
-    dfmark_e = df.loc[df['scale'] == 'E'].copy()
-    dfmark_y = df.loc[df['scale'] == 'Y'].copy()
-    dfmark_x = df.loc[df['scale'] == 'X'].copy()
-    dfmark_i = df.loc[df['scale'] == 'I'].copy()
-    dfmark_l = df.loc[df['scale'] == 'L'].copy()
+    scale = my_data["worker_mem_alloc"].max() / mem_scale
+    df_jy = df[["job_alloc", "job_pending"]]
+    dfmark_a = df.loc[df["scale"] == "A"].copy()
+    dfmark_u = df.loc[df["scale"] == "U"].copy()
+    dfmark_d = df.loc[df["scale"] == "D"].copy()
+    dfmark_m = df.loc[df["scale"] == "M"].copy()
+    dfmark_e = df.loc[df["scale"] == "E"].copy()
+    dfmark_y = df.loc[df["scale"] == "Y"].copy()
+    dfmark_x = df.loc[df["scale"] == "X"].copy()
+    dfmark_i = df.loc[df["scale"] == "I"].copy()
+    dfmark_l = df.loc[df["scale"] == "L"].copy()
 
-    dfmark_u['scale'] = dfmark_u['scale'].map({'U': scale / 4})
-    dfmark_a['scale'] = dfmark_a['scale'].map({'A': scale / 5})
-    dfmark_d['scale'] = dfmark_d['scale'].map({'D': scale / 6})
-    dfmark_m['scale'] = dfmark_m['scale'].map({'M': scale / 7})
-    dfmark_e['scale'] = dfmark_e['scale'].map({'E': scale / 8})
-    dfmark_y['scale'] = dfmark_y['scale'].map({'Y': scale / 9})
-    dfmark_x['scale'] = dfmark_x['scale'].map({'X': scale / 6})
-    dfmark_i['scale'] = dfmark_i['scale'].map({'I': scale / 3})
-    dfmark_l['scale'] = dfmark_l['scale'].map({'L': scale / 9})
+    dfmark_u["scale"] = dfmark_u["scale"].map({"U": scale / 4})
+    dfmark_a["scale"] = dfmark_a["scale"].map({"A": scale / 5})
+    dfmark_d["scale"] = dfmark_d["scale"].map({"D": scale / 6})
+    dfmark_m["scale"] = dfmark_m["scale"].map({"M": scale / 7})
+    dfmark_e["scale"] = dfmark_e["scale"].map({"E": scale / 8})
+    dfmark_y["scale"] = dfmark_y["scale"].map({"Y": scale / 9})
+    dfmark_x["scale"] = dfmark_x["scale"].map({"X": scale / 6})
+    dfmark_i["scale"] = dfmark_i["scale"].map({"I": scale / 3})
+    dfmark_l["scale"] = dfmark_l["scale"].map({"L": scale / 9})
 
     if not df_jy.empty:
-        plt.plot(df['date'], df_jy['job_alloc'], linestyle='solid', color='blue', alpha=0.4, label='allocated by jobs')
+        plt.plot(
+            df["date"],
+            df_jy["job_alloc"],
+            linestyle="solid",
+            color="blue",
+            alpha=0.4,
+            label="allocated by jobs",
+        )
     if not dfmark_a.empty:
-        plt.plot(dfmark_a['date'], dfmark_a['scale'], marker='p', linestyle='None', label='rescale', color='blue',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_a["date"],
+            dfmark_a["scale"],
+            marker="p",
+            linestyle="None",
+            label="rescale",
+            color="blue",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_u.empty:
-        plt.plot(dfmark_u['date'], dfmark_u['scale'], marker='^', linestyle='None', label='scale-up', color='green',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_u["date"],
+            dfmark_u["scale"],
+            marker="^",
+            linestyle="None",
+            label="scale-up",
+            color="green",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_d.empty:
-        plt.plot(dfmark_d['date'], dfmark_d['scale'], marker='v', linestyle='None', label='scale-down', color='orange',
-                 alpha=0.4, markersize=4)
+        plt.plot(
+            dfmark_d["date"],
+            dfmark_d["scale"],
+            marker="v",
+            linestyle="None",
+            label="scale-down",
+            color="orange",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_m.empty:
-        plt.plot(dfmark_m['date'], dfmark_m['scale'], marker='1', linestyle='None', label='autoscale', color='black',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_m["date"],
+            dfmark_m["scale"],
+            marker="1",
+            linestyle="None",
+            label="autoscale",
+            color="black",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_e.empty:
-        plt.plot(dfmark_e['date'], dfmark_e['scale'], marker='X', linestyle='None', label='error', color='red',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_e["date"],
+            dfmark_e["scale"],
+            marker="X",
+            linestyle="None",
+            label="error",
+            color="red",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_y.empty:
-        plt.plot(dfmark_y['date'], dfmark_y['scale'], marker='d', linestyle='None', label='scale-down drain',
-                 color='blue',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_y["date"],
+            dfmark_y["scale"],
+            marker="d",
+            linestyle="None",
+            label="scale-down drain",
+            color="blue",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_x.empty:
-        plt.plot(dfmark_x['date'], dfmark_x['scale'], marker='o', linestyle='None', label='reactivate worker',
-                 color='orange',
-                 alpha=0.4,
-                 markersize=4)
+        plt.plot(
+            dfmark_x["date"],
+            dfmark_x["scale"],
+            marker="o",
+            linestyle="None",
+            label="reactivate worker",
+            color="orange",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_i.empty:
-        plt.plot(dfmark_i['date'], dfmark_i['scale'], marker='>', linestyle='None', label='scale-up (api)',
-                 color='green',
-                 alpha=0.4, markersize=4)
+        plt.plot(
+            dfmark_i["date"],
+            dfmark_i["scale"],
+            marker=">",
+            linestyle="None",
+            label="scale-up (api)",
+            color="green",
+            alpha=0.4,
+            markersize=4,
+        )
     if not dfmark_l.empty:
-        plt.plot(dfmark_l['date'], dfmark_l['scale'], marker='D', linestyle='None', label='insufficient resources',
-                 color='red',
-                 alpha=0.4, markersize=4)
+        plt.plot(
+            dfmark_l["date"],
+            dfmark_l["scale"],
+            marker="D",
+            linestyle="None",
+            label="insufficient resources",
+            color="red",
+            alpha=0.4,
+            markersize=4,
+        )
 
-    ax.set_xlabel('time')
-    ax.set_ylabel('memory resources (TB)')
-    ax.set_title('Setting: ' + str(config_data['active_mode']), fontsize=15)
+    ax.set_xlabel("time")
+    ax.set_ylabel("memory resources (TB)")
+    ax.set_title("Setting: " + str(config_data["active_mode"]), fontsize=15)
 
     ax.margins(x=0.01)
     plt.grid()
     plt.xticks(rotation=45)
-    ax.legend(loc='upper left')
-    pdf.savefig(fig, bbox_inches='tight')
+    ax.legend(loc="upper left")
+    pdf.savefig(fig, bbox_inches="tight")
 
     df = pd.DataFrame(my_data).fillna(0)
     fig, ax = plt.subplots(figsize=(width_, 5))
     bottom = 0
-    names = ['pending jobs']
+    names = ["pending jobs"]
     cnt = 0
     ax = plt.subplot()
-    for col in ['job_cnt_pending']:
-        ax.bar(df['date'], df[col], width=widths, align='edge', alpha=0.4, label=names[cnt])
+    for col in ["job_cnt_pending"]:
+        ax.bar(
+            df["date"], df[col], width=widths, align="edge", alpha=0.4, label=names[cnt]
+        )
         bottom += df[col]
         cnt += 1
-    ax.set_xlabel('time')
-    ax.set_ylabel('number of pending jobs')
+    ax.set_xlabel("time")
+    ax.set_ylabel("number of pending jobs")
     ax.margins(x=0.01)
     plt.xticks(rotation=45)
     plt.grid()
-    ax.legend(loc='upper left')
-    pdf.savefig(fig, bbox_inches='tight')
+    ax.legend(loc="upper left")
+    pdf.savefig(fig, bbox_inches="tight")
     pdf.close()
 
 
@@ -5063,8 +6219,8 @@ def __get_history_recall():
     Read history recall value.
     :return: number of days
     """
-    if config_data['history_recall']:
-        return config_data['history_recall']
+    if config_data["history_recall"]:
+        return config_data["history_recall"]
     return DATA_LONG_TIME
 
 
@@ -5074,10 +6230,10 @@ def __get_time_threshold(flavor):
     :param flavor: flavor name
     :return: threshold
     """
-    if 'flavor_time_threshold' in config_mode:
-        if flavor in config_mode['flavor_time_threshold']:
-            return float(config_mode['flavor_time_threshold'][flavor])
-    return float(config_mode['job_time_threshold'])
+    if "flavor_time_threshold" in config_mode:
+        if flavor in config_mode["flavor_time_threshold"]:
+            return float(config_mode["flavor_time_threshold"][flavor])
+    return float(config_mode["job_time_threshold"])
 
 
 def select_mode():
@@ -5091,22 +6247,26 @@ def select_mode():
     modes_available = []
     try:
         yaml_config = __read_yaml_file(FILE_CONFIG_YAML)
-        mode_active = yaml_config['scaling']['active_mode']
-        for mode in yaml_config['scaling']['mode']:
+        mode_active = yaml_config["scaling"]["active_mode"]
+        for mode in yaml_config["scaling"]["mode"]:
             modes_available.append(mode)
 
-            if 'info' in yaml_config['scaling']['mode'][mode]:
-                info = yaml_config['scaling']['mode'][mode]['info']
-                print("id: {0:<2d}, {1:<20s}: {2:>1s}".format(modes_available.index(mode), mode, info))
+            if "info" in yaml_config["scaling"]["mode"][mode]:
+                info = yaml_config["scaling"]["mode"][mode]["info"]
+                print(f"id: {modes_available.index(mode):<2d}, {mode:<20s}: {info:>1s}")
             else:
-                print("id: {0:<2d}, {1:<20s}".format(modes_available.index(mode), mode))
+                print(f"id: {modes_available.index(mode):<2d}, {mode:<20s}")
 
-        print("current active mode: id {i}, {m}".format(i=modes_available.index(mode_active), m=mode_active))
+        print(
+            "current active mode: id {i}, {m}".format(
+                i=modes_available.index(mode_active), m=mode_active
+            )
+        )
         mode_id = input("enter mode id: ")
         if mode_id.isnumeric() and modes_available:
             mode_id = int(mode_id)
             if len(modes_available) > mode_id:
-                yaml_config['scaling']['active_mode'] = modes_available[mode_id]
+                yaml_config["scaling"]["active_mode"] = modes_available[mode_id]
                 ___write_yaml_file(FILE_CONFIG_YAML, yaml_config)
                 restart_systemd_service_request()
                 return
@@ -5120,8 +6280,8 @@ def __select_ignore_workers():
     if not yaml_config:
         return
     workers_ignore = []
-    if 'ignore_workers' in yaml_config['scaling']:
-        workers_ignore = yaml_config['scaling']['ignore_workers']
+    if "ignore_workers" in yaml_config["scaling"]:
+        workers_ignore = yaml_config["scaling"]["ignore_workers"]
     print("current ignored workers:", workers_ignore)
 
     node_dict = receive_node_data_live_uncut()
@@ -5131,10 +6291,10 @@ def __select_ignore_workers():
         for i, k in enumerate(node_dict):
             print(i, k)
         worker_id = input("worker id (use: 'quit' & 'clear'): ")
-        print('-' + worker_id + '-')
-        if worker_id == 'quit':
+        print("-" + worker_id + "-")
+        if worker_id == "quit":
             break
-        if worker_id == 'clear':
+        if worker_id == "clear":
             workers_ignore = []
             continue
         if not worker_id.isnumeric():
@@ -5147,12 +6307,12 @@ def __select_ignore_workers():
                 break
         print("-----")
         print(workers_ignore)
-    yaml_config['scaling'].update({'ignore_workers': workers_ignore})
+    yaml_config["scaling"].update({"ignore_workers": workers_ignore})
     ___write_yaml_file(FILE_CONFIG_YAML, yaml_config)
     restart_systemd_service_request()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logger = None
     scheduler_interface = None
 
@@ -5170,7 +6330,7 @@ if __name__ == '__main__':
         elif sys.argv[1] in ["-l", "--l", "-log", "--log"]:
             # temp csv log
             if LOG_LEVEL == logging.DEBUG:
-                logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + '_csv.log')
+                logger = setup_logger(AUTOSCALING_FOLDER + IDENTIFIER + "_csv.log")
         elif sys.argv[1] in ["-stop", "--stop"]:
             stop_systemd_service()
             sys.exit(0)
@@ -5199,7 +6359,7 @@ if __name__ == '__main__':
             sys.exit(0)
     config_mode, config_data = __setting_overwrite(None)
     config_hash = generate_hash(FILE_CONFIG_YAML)
-    scheduler = config_data['scheduler']
+    scheduler = config_data["scheduler"]
     cluster_id = read_cluster_id()
     # load scheduler interface
     if scheduler == "slurm":
@@ -5213,10 +6373,10 @@ if __name__ == '__main__':
 
     if len(sys.argv) == 2:
         if sys.argv[1] in ["-l", "--l", "-log", "--log"]:
-            __csv_log_entry('C', '0', '0')
+            __csv_log_entry("C", "0", "0")
             sys.exit(0)
         elif sys.argv[1] in ["-rsc", "--rsc", "-rescale", "--rescale"]:
-            print('rescale cluster configuration')
+            print("rescale cluster configuration")
             rescale_init(None, None)
             sys.exit(0)
         elif sys.argv[1] in ["-nd", "--nd", "-node", "--node"]:
@@ -5238,7 +6398,7 @@ if __name__ == '__main__':
             print_job_history(receive_completed_job_data(__get_history_recall()))
             sys.exit(0)
         elif sys.argv[1] in ["-fv", "--fv", "-flavor", "--flavor"]:
-            print('flavors available:')
+            print("flavors available:")
             fv_info = get_usable_flavors(False, True)
             if fv_info and LOG_LEVEL == logging.DEBUG:
                 print(pformat(fv_info))
@@ -5261,17 +6421,19 @@ if __name__ == '__main__':
     pidfile = create_pid_file()
 
     try:
-        logger.info('\n#############################################'
-                    '\n########### START SCALING PROGRAM ###########'
-                    '\n#############################################')
+        logger.info(
+            "\n#############################################"
+            "\n########### START SCALING PROGRAM ###########"
+            "\n#############################################"
+        )
 
         systemd_start = False
         if len(sys.argv) > 1:
             arg = sys.argv[1]
-            logger.debug('autoscaling with %s: ', ' '.join(sys.argv))
+            logger.debug("autoscaling with %s: ", " ".join(sys.argv))
             if len(sys.argv) == 2:
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
-                    print('scale-up')
+                    print("scale-up")
                     __cluster_scale_up_test(1)
                 elif arg in ["-suc", "--suc", "-scaleupchoice", "--scaleupchoice"]:
                     __cluster_scale_up_choice()
@@ -5280,24 +6442,33 @@ if __name__ == '__main__':
                 elif arg in ["-sdb", "--sdb", "-scaledownbatch", "--scaledownbatch"]:
                     __cluster_scale_down_choice_batch()
                 elif arg in ["-sd", "--sd", "-scaledown", "--scaledown"]:
-                    print('scale-down')
+                    print("scale-down")
                     __cluster_scale_down_idle()
                 elif arg in ["-sdi", "--sdi", "-scaledownidle", "--scaledownidle"]:
-                    logger.warning("warning: scale down in %s sec ...", WAIT_CLUSTER_SCALING)
+                    logger.warning(
+                        "warning: scale down in %s sec ...", WAIT_CLUSTER_SCALING
+                    )
                     time.sleep(WAIT_CLUSTER_SCALING)
                     __cluster_scale_down_complete()
                 elif arg in ["-csd", "--csd", "-clustershutdown", "--clustershutdown"]:
-                    logger.warning("warning: delete all worker from cluster in %s sec ...", WAIT_CLUSTER_SCALING)
+                    logger.warning(
+                        "warning: delete all worker from cluster in %s sec ...",
+                        WAIT_CLUSTER_SCALING,
+                    )
                     time.sleep(WAIT_CLUSTER_SCALING)
                     __cluster_shut_down()
                 elif arg in ["-cdb", "--cdb", "-clusterbroken", "--clusterbroken"]:
-                    logger.warning("warning: delete all broken worker from cluster in %s sec ...",
-                                   WAIT_CLUSTER_SCALING)
+                    logger.warning(
+                        "warning: delete all broken worker from cluster in %s sec ...",
+                        WAIT_CLUSTER_SCALING,
+                    )
                     time.sleep(WAIT_CLUSTER_SCALING)
                     worker_j, _, _, _, _ = receive_node_data_db(False)
-                    __verify_cluster_workers(get_cluster_workers_from_api(), worker_j, None)
+                    __verify_cluster_workers(
+                        get_cluster_workers_from_api(), worker_j, None
+                    )
                 elif arg in ["-pb", "--pb", "-playbook", "--playbook"]:
-                    print('run_ansible_playbook')
+                    print("run_ansible_playbook")
                     run_ansible_playbook()
                 elif arg in ["-cw", "--cw", "-checkworker", "--checkworker"]:
                     check_workers(Rescale.INIT, 0, None)
@@ -5316,14 +6487,19 @@ if __name__ == '__main__':
             elif len(sys.argv) == 3:
                 arg2 = sys.argv[2]
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
-                    print('scale-up')
+                    print("scale-up")
                     if arg2.isnumeric():
                         __cluster_scale_up_test(int(arg2))
                     else:
                         logger.error("we need a number, for example: -su 2")
                         sys.exit(1)
-                elif arg in ["-sds", "--sds", "-scaledownspecific", "--scaledownspecific"]:
-                    print('scale-down-specific')
+                elif arg in [
+                    "-sds",
+                    "--sds",
+                    "-scaledownspecific",
+                    "--scaledownspecific",
+                ]:
+                    print("scale-down-specific")
                     if "worker" in arg2:
                         cluster_scale_down_specific_hostnames(arg2, Rescale.CHECK, None)
                     else:
@@ -5335,11 +6511,13 @@ if __name__ == '__main__':
                 sys.exit(0)
             elif len(sys.argv) == 4:
                 if arg in ["-sus", "--sus", "-scaleupspecific", "--scaleupspecific"]:
-                    print('scale-up')
+                    print("scale-up")
                     if sys.argv[3].isnumeric():
-                        __cluster_scale_up_specific(sys.argv[2], int(sys.argv[3]), True, None)
+                        __cluster_scale_up_specific(
+                            sys.argv[2], int(sys.argv[3]), True, None
+                        )
         else:
-            print('\npass a mode via parameter, use -h for help')
+            print("\npass a mode via parameter, use -h for help")
             rescale_cluster(-1, None)
     finally:
         os.unlink(pidfile)

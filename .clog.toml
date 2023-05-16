@@ -1,0 +1,3 @@
+[clog]
+repository = "https://github.com/deNBI/autoscaling-cluster"
+from-latest-tag = true
