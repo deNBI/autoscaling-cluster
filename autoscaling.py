@@ -4470,7 +4470,7 @@ def __cloud_api_(portal_url_scale, worker_data):
             password = response_json["password"]
             logger.debug(f"Set New Password: {password}")
             with open(CLUSTER_PASSWORD_FILE, "w", encoding="utf8") as f:
-                f.write(response_json)
+                 f.write(json.dumps(response_json))
         else:
             logger.debug("No password found in the response.")
     except json.JSONDecodeError:
