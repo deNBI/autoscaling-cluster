@@ -1,6 +1,6 @@
 Cython==0.29.32
 matplotlib==3.7.1
-numpy==1.24.3
+numpy==1.25.0
 pandas==1.5.3
 pyslurm==18.8.1.1
 PyYAML==6.0
