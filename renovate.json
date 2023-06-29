@@ -4,6 +4,7 @@
     ":automergePatch"
   ],
  "packageRules": [
+    "pythonVersion": "3.8",
     {
       "updateTypes": ["major"],
       "addLabels": ["major"]
