@@ -4,22 +4,28 @@
     ":automergePatch"
   ],
  "packageRules": [
-    "pythonVersion": "3.8",
     {
       "updateTypes": ["major"],
-      "addLabels": ["major"]
+      "addLabels": ["major"],
+       "pythonVersion": "3.8"
     },
     {
       "updateTypes": ["minor"],
-      "addLabels": ["minor"]
+      "addLabels": ["minor"],
+      "pythonVersion": "3.8"
+
     },
      {
       "updateTypes": ["patch"],
-      "addLabels": ["patch"]
+      "addLabels": ["patch"],
+      "pythonVersion": "3.8"
+
     },
     {
       "updateTypes": ["pin"],
-      "addLabels": ["pin"]
+      "addLabels": ["pin"],
+      "pythonVersion": "3.8"
+
     }
    ],
   "vulnerabilityAlerts": {
