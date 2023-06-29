@@ -29,7 +29,7 @@
   },
   "constraints": {
     "python": "==3.8"
-  }
+  },
   "baseBranches": ["dev"],
   "reviewers": ["team:portal-dev"],
   "labels": ["dependencies"],
