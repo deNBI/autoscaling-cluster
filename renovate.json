@@ -27,9 +27,10 @@
   "vulnerabilityAlerts": {
     "labels": ["security"]
   },
+
   "constraints": {
-    "python": "==3.8"
-  },
+          "python": "3.8.15"
+	}
   "baseBranches": ["dev"],
   "reviewers": ["team:portal-dev"],
   "labels": ["dependencies"],
