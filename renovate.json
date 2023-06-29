@@ -7,30 +7,29 @@
     {
       "updateTypes": ["major"],
       "addLabels": ["major"],
-       "pythonVersion": "3.8"
     },
     {
       "updateTypes": ["minor"],
       "addLabels": ["minor"],
-      "pythonVersion": "3.8"
 
     },
      {
       "updateTypes": ["patch"],
       "addLabels": ["patch"],
-      "pythonVersion": "3.8"
 
     },
     {
       "updateTypes": ["pin"],
       "addLabels": ["pin"],
-      "pythonVersion": "3.8"
 
     }
    ],
   "vulnerabilityAlerts": {
     "labels": ["security"]
   },
+  "constraints": {
+    "python": "==3.8"
+  }
   "baseBranches": ["dev"],
   "reviewers": ["team:portal-dev"],
   "labels": ["dependencies"],
