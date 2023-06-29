@@ -699,12 +699,11 @@ class ScalingDown:
 
     def delete_ip_yaml(self):
         print("Delete yaml file")
+        files_to_delete = []
         for ip in self.valid_delete_ips:
             yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
             if os.path.isfile(yaml_file):
-                print("Found: ", yaml_file)
-                os.remove(yaml_file)
-                print("Deleted: ", yaml_file)
+                files_to_delete.append(yaml_file)
             else:
                 print("Yaml already deleted: ", yaml_file)
 
@@ -722,17 +721,14 @@ class ScalingDown:
                 ansible_hosts.write(line)
 
 
-class ScalingUp:
-    def __init__(self, password, dummy_worker, cluster_data):
+class Scaling:
+    def __init__(self, password, dummy_worker):
         self.password = password
         self.dummy_worker = dummy_worker
-        if not cluster_data:  # speed up, if recent data available
-            self.data = self.get_cluster_data()
-        else:
-            self.data = cluster_data
+        self.data = self.get_cluster_data()
         self.replace_cidr_for_nsf_mount()
         if self.data is None:
-            print("get scaling down data: None")
+            logger.error("get scaling  data: None")
             return
         self.master_data = self.data["master"]
         self.cluster_data = [
@@ -744,17 +740,43 @@ class ScalingUp:
         ]
 
         self.valid_upscale_ips = [cl["ip"] for cl in self.cluster_data]
+        logger.info(f"Current Worker IPs: {self.valid_upscale_ips}")
 
         if self.cluster_data:
-            workers_data = self.create_yml_file()
-            self.add_new_workers_to_instances(worker_data=workers_data)
+            self.delete_workers_ip_yaml()
+            workers_data = self.create_worker_yml_file()
+            self.update_workers_yml(worker_data=workers_data)
             self.add_ips_to_ansible_hosts()
         else:
             # keep dummy worker alive
             workers_data = [dummy_worker]
-            print(pformat(workers_data))
+            logger.info(pformat(workers_data))
             self.add_new_workers_to_instances(worker_data=workers_data)
-            print("No active worker found!")
+            logger.info("No active worker found!")
+
+    def update_workers_yml(self, worker_data):
+        logger.info("Update Worker YAML")
+        logger.debug(f"Update Worker Yaml with data: - {worker_data}")
+        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
+            stream.seek(0)
+            try:
+                instances_mod = {
+                    "workers": [],
+                    "deletedWorkers": [],
+                    "master": self.master_data,
+                }
+                if self.dummy_worker is not None:
+                    instances_mod["workers"].append(self.dummy_worker)
+
+                for worker in worker_data:
+                    instances_mod["workers"].append(worker)
+
+                stream.seek(0)
+                stream.truncate()
+                yaml.dump(instances_mod, stream)
+            except yaml.YAMLError as exc:
+                logger.error("YAMLError ", exc)
+                sys.exit(1)
 
     def replace_cidr_for_nsf_mount(self):
         print("Get CIDR from common configuration")
@@ -802,38 +824,7 @@ class ScalingUp:
         print("Validate  IP: ", ip)
         return re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
 
-    def add_new_workers_to_instances(self, worker_data):
-        print("Add workers to instances")
-        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
-            stream.seek(0)
-            try:
-                instances = yaml.safe_load(stream)
-                if not instances:
-                    instances = {
-                        "workers": [],
-                        "deletedWorkers": [],
-                        "master": self.master_data,
-                    }
-                if not instances["workers"]:
-                    instances["workers"] = []
-                if self.dummy_worker is not None:
-                    instances["workers"].append(self.dummy_worker)  # dummy test
-                worker_ips = [worker["ip"] for worker in instances["workers"]]
-
-                for new_worker in worker_data:
-                    if not new_worker["ip"] in worker_ips:
-                        instances["workers"].append(new_worker)
-                    else:
-                        print(f"Worker with IP {new_worker['ip']} already registered!")
-                stream.seek(0)
-                stream.truncate()
-                yaml.dump(instances, stream)
-            except yaml.YAMLError as exc:
-                print("YAMLError ", exc)
-                print(exc)
-                sys.exit(1)
-
-    def create_yml_file(self):
+    def create_worker_yml_file(self):
         workers_data = []
         for data in self.cluster_data:
             yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
@@ -850,19 +841,40 @@ class ScalingUp:
 
         return workers_data
 
+    def delete_workers_ip_yaml(self):
+        ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+        files = os.listdir(PLAYBOOK_VARS_DIR)
+        ip_addresses = []
+        for file in files:
+            match = re.search(ip_pattern, file)
+            if match:
+                ip_addresses.append(match.group())
+        for ip in ip_addresses:
+            if ip not in self.valid_upscale_ips:
+                yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
+                if os.path.isfile(yaml_file):
+                    os.remove(yaml_file)
+                    print("Deleted YAML ", yaml_file)
+
+                else:
+                    print("Yaml already deleted: ", yaml_file)
+
     def add_ips_to_ansible_hosts(self):
         print("Add ips to ansible_hosts")
         with open(ANSIBLE_HOSTS_FILE, "r", encoding="utf8") as in_file:
             buf = in_file.readlines()
 
         with open(ANSIBLE_HOSTS_FILE, "w", encoding="utf8") as out_file:
+            found_workers = False
             for line in buf:
                 if "[workers]" in line:
+                    found_workers = True
+                    out_file.write(line)  # Write the original "[workers]" line
                     for ip in self.valid_upscale_ips:
                         ip_line = f"{ip} ansible_connection=ssh ansible_python_interpreter=/usr/bin/python3 ansible_user=ubuntu\n"
-                        if ip_line not in buf:
-                            line = line + ip_line + "\n"
-                out_file.write(line)
+                        out_file.write(ip_line)
+                elif not found_workers:
+                    out_file.write(line)
 
 
 def run_ansible_playbook():
@@ -961,11 +973,9 @@ def rescale_init(cluster_data, dummy_worker):
 
     logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
     try:
-        ScalingDown(password=__get_cluster_password(), dummy_worker=dummy_worker)
-        ScalingUp(
+        Scaling(
             password=__get_cluster_password(),
             dummy_worker=dummy_worker,
-            cluster_data=cluster_data,
         )
         playbook_success = run_ansible_playbook()
         if not playbook_success:
@@ -4470,7 +4480,7 @@ def __cloud_api_(portal_url_scale, worker_data):
             password = response_json["password"]
             logger.debug(f"Set New Password: {password}")
             with open(CLUSTER_PASSWORD_FILE, "w", encoding="utf8") as f:
-                 f.write(json.dumps(response_json))
+                f.write(json.dumps(response_json))
         else:
             logger.debug("No password found in the response.")
     except json.JSONDecodeError:
