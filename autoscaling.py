@@ -34,14 +34,15 @@ import requests
 import yaml
 
 LOG_LEVEL = logging.INFO
-VERSION = "0.4.0"
 OUTDATED_SCRIPT_MSG = (
     "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
     "-  please download the current version and run it again!"
 )
 
 PORTAL_LINK = "https://cloud.denbi.de"
-REPO_LINK = ""
+AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
+AUTOSCALING_VERSION = "1.1.0"
+REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 405
@@ -54,7 +55,7 @@ FILE_CONFIG_YAML = AUTOSCALING_FOLDER + FILE_CONFIG
 FILE_ID = IDENTIFIER + ".py"
 FILE_PROG = AUTOSCALING_FOLDER + FILE_ID
 FILE_PID = IDENTIFIER + ".pid"
-SOURCE_LINK = REPO_LINK + FILE_ID
+SOURCE_LINK = REPO_LINK + AUTOSCALING_VERSION + "/" + FILE_ID
 SOURCE_LINK_CONFIG = REPO_LINK + FILE_CONFIG
 
 CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + "cluster_pw.json"
@@ -633,16 +634,16 @@ class ScalingDown:
             json={
                 "scaling": "scaling_down",
                 "password": self.password,
-                "version": VERSION,
+                "version": AUTOSCALING_VERSION,
             },
         )
         if res.status_code == HTTP_CODE_OK:
             data_json = res.json()
             version = data_json["VERSION"]
-            if version != VERSION:
+            if version != AUTOSCALING_VERSION:
                 print(
                     OUTDATED_SCRIPT_MSG.format(
-                        SCRIPT_VERSION=VERSION, LATEST_VERSION=version
+                        SCRIPT_VERSION=AUTOSCALING_VERSION, LATEST_VERSION=version
                     )
                 )
                 return None
@@ -749,9 +750,10 @@ class Scaling:
             self.add_ips_to_ansible_hosts()
         else:
             # keep dummy worker alive
+            self.delete_workers_ip_yaml()
             workers_data = [dummy_worker]
             logger.info(pformat(workers_data))
-            self.add_new_workers_to_instances(worker_data=workers_data)
+            self.update_workers_yml(worker_data=workers_data)
             logger.info("No active worker found!")
 
     def update_workers_yml(self, worker_data):
@@ -806,12 +808,12 @@ class Scaling:
             json={
                 "scaling": "scaling_up",
                 "password": self.password,
-                "version": VERSION,
+                "version": AUTOSCALING_VERSION,
             },
         )
         if res.status_code == HTTP_CODE_OK:
             res = res.json()
-            version_check(res["VERSION"])
+            version_check(res["AUTOSCALING_VERSION"])
             return res
         if res.status_code == HTTP_CODE_UNAUTHORIZED:
             print(get_wrong_password_msg())
@@ -996,7 +998,7 @@ def get_version():
     Print the current autoscaling version.
     :return:
     """
-    print("Version: ", VERSION)
+    print("Version: ", AUTOSCALING_VERSION)
 
 
 def __update_playbook_scheduler_config(set_config):
@@ -1736,7 +1738,7 @@ def get_cluster_data():
         json_data = {
             "scaling": "scaling_up",
             "password": __get_cluster_password(),
-            "version": VERSION,
+            "version": AUTOSCALING_VERSION,
         }
         response = requests.post(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
@@ -1945,7 +1947,7 @@ def get_usable_flavors(quiet, cut):
     try:
         res = requests.post(
             url=get_url_info_flavors(),
-            json={"password": __get_cluster_password(), "version": VERSION},
+            json={"password": __get_cluster_password(), "version": AUTOSCALING_VERSION},
         )
 
         if res.status_code == HTTP_CODE_OK:
@@ -4024,7 +4026,7 @@ def __calculate_scale_up_data(
             "password": __get_cluster_password(),
             "worker_flavor_name": flavor_tmp["flavor"]["name"],
             "upscale_count": upscale_limit,
-            "version": VERSION,
+            "version": AUTOSCALING_VERSION,
         }
         logger.debug(
             "track upscale limit level %s: %s  - start limit", level, upscale_limit
@@ -4746,7 +4748,7 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     data = {
         "password": __get_cluster_password(),
         "worker_hostnames": worker_hostnames,
-        "version": VERSION,
+        "version": AUTOSCALING_VERSION,
     }
     logger.debug("portal_url_scaledown_specific: %s", get_url_scale_down_specific())
     logger.debug(
@@ -4862,7 +4864,7 @@ def __cluster_scale_up_test(upscale_limit):
         "password": __get_cluster_password(),
         "worker_flavor_name": config_mode["flavor_default"],
         "upscale_count": upscale_limit,
-        "version": VERSION,
+        "version": AUTOSCALING_VERSION,
     }
     cloud_api(get_url_scale_up(), up_scale_data)
     rescale_cluster(0, None)
@@ -4886,7 +4888,7 @@ def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale, dummy_worke
         "password": __get_cluster_password(),
         "worker_flavor_name": flavor_name,
         "upscale_count": upscale_limit,
-        "version": VERSION,
+        "version": AUTOSCALING_VERSION,
     }
     _, worker_count, _, _, _ = receive_node_data_live()
     if not cloud_api(get_url_scale_up(), up_scale_data):
@@ -5475,7 +5477,7 @@ def create_database(flavor_data):
     )  # config_data['history_init']
 
     dict_db = {
-        "VERSION": VERSION,
+        "VERSION": AUTOSCALING_VERSION,
         "config_hash": config_hash,
         "update_time": time_start,
         "flavor_name": {},
@@ -5563,7 +5565,8 @@ def update_database(flavor_data):
         dict_db = __get_file(DATABASE_FILE)
         # create new database if config file changed to avoid incompatible settings
         if dict_db and (
-            dict_db["config_hash"] != config_hash or dict_db["VERSION"] != VERSION
+            dict_db["config_hash"] != config_hash
+            or dict_db["VERSION"] != AUTOSCALING_VERSION
         ):
             logger.info("config file changed")
             if config_data["database_reset"]:
@@ -5734,9 +5737,11 @@ def version_check(version):
     :param version: current version from cloud api
     :return:
     """
-    if version != VERSION:
+    if version != AUTOSCALING_VERSION:
         logger.warning(
-            OUTDATED_SCRIPT_MSG.format(SCRIPT_VERSION=VERSION, LATEST_VERSION=version)
+            OUTDATED_SCRIPT_MSG.format(
+                SCRIPT_VERSION=AUTOSCALING_VERSION, LATEST_VERSION=version
+            )
         )
         automatic_update()
 
