@@ -5933,9 +5933,9 @@ def download_autoscaling():
     Use autoscaling url from configuration file.
     :return:
     """
-    return update_file(
-        FILE_PROG, REPO_LINK + get_latest_release_tag() + "/" + FILE_ID, FILE_ID
-    )
+    source_link = REPO_LINK + get_latest_release_tag() + "/" + FILE_ID
+    logger.warning(f"Downloading new script via url: - {source_link}")
+    return update_file(FILE_PROG, source_link, FILE_ID)
 
 
 def function_test():
