@@ -2114,7 +2114,12 @@ def __get_cluster_password():
     :return: "CLUSTER_PASSWORD"
     """
     pw_json = __get_file(CLUSTER_PASSWORD_FILE)
-    cluster_pw = pw_json["password"]
+    cluster_pw = pw_json.get("password", None)
+    if not cluster_pw:
+        logger.error(
+            "No Cluster Password. Please set the password via:\n autoscaling -p \n and restart the service!"
+        )
+        sys.exit(1)
     logger.debug("pw_json: %s", cluster_pw)
     return cluster_pw
 
