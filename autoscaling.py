@@ -42,7 +42,8 @@ OUTDATED_SCRIPT_MSG = (
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
 AUTOSCALING_VERSION = "1.1.0"
-REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
+REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
+RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 405
@@ -55,7 +56,6 @@ FILE_CONFIG_YAML = AUTOSCALING_FOLDER + FILE_CONFIG
 FILE_ID = IDENTIFIER + ".py"
 FILE_PROG = AUTOSCALING_FOLDER + FILE_ID
 FILE_PID = IDENTIFIER + ".pid"
-SOURCE_LINK = REPO_LINK + AUTOSCALING_VERSION + "/" + FILE_ID
 SOURCE_LINK_CONFIG = REPO_LINK + FILE_CONFIG
 
 CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + "cluster_pw.json"
@@ -5752,6 +5752,14 @@ def version_check(version):
         automatic_update()
 
 
+def get_latest_release_tag():
+    release_url = REPO_LINK + "/releases/latest"
+    response = requests.get(release_url)
+    latest_release = response.json()
+    latest_tag = latest_release["tag_name"]
+    return latest_tag
+
+
 def automatic_update():
     """
     Download the program from sources if automatic update is active.
@@ -5925,7 +5933,9 @@ def download_autoscaling():
     Use autoscaling url from configuration file.
     :return:
     """
-    return update_file(FILE_PROG, SOURCE_LINK, FILE_ID)
+    return update_file(
+        FILE_PROG, REPO_LINK + get_latest_release_tag() + "/" + FILE_ID, FILE_ID
+    )
 
 
 def function_test():
