@@ -813,7 +813,7 @@ class Scaling:
         )
         if res.status_code == HTTP_CODE_OK:
             res = res.json()
-            version_check(res["AUTOSCALING_VERSION"])
+            version_check(res["VERSION"])
             return res
         if res.status_code == HTTP_CODE_UNAUTHORIZED:
             print(get_wrong_password_msg())
