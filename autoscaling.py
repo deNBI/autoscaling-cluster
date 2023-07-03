@@ -42,7 +42,9 @@ OUTDATED_SCRIPT_MSG = (
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
 AUTOSCALING_VERSION = "1.1.0"
-REPO_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/releases/latest"
+REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
+REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/releases/latest"
+
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
@@ -5753,7 +5755,7 @@ def version_check(version):
 
 
 def get_latest_release_tag():
-    release_url = REPO_LINK + "releases/latest"
+    release_url = REPO_API_LINK + "releases/latest"
     response = requests.get(release_url)
     latest_release = response.json()
     latest_tag = latest_release["tag_name"]
@@ -5898,7 +5900,9 @@ def download_autoscaling_config():
     This function will replace user settings to the latest default version.
     :return:
     """
-    return update_file(FILE_CONFIG_YAML, SOURCE_LINK_CONFIG, FILE_CONFIG)
+    source_link = REPO_LINK + get_latest_release_tag() + "/" + FILE_CONFIG
+    logger.warning(f"Downloading new config via url: - {source_link}")
+    return update_file(FILE_CONFIG_YAML, source_link, FILE_CONFIG)
 
 
 def update_file(file_location, url, filename):
