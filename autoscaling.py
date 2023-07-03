@@ -4282,6 +4282,7 @@ def multiscale(flavor_data, dummy_worker):
     :param dummy_worker: dummy worker data
     :return:
     """
+    Scaling(password=__get_cluster_password(), dummy_worker=dummy_worker)
     state = ScaleState.DELAY
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
