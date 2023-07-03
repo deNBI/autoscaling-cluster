@@ -5900,7 +5900,7 @@ def download_autoscaling_config():
     This function will replace user settings to the latest default version.
     :return:
     """
-    source_link = REPO_LINK + get_latest_release_tag() + "/" + FILE_CONFIG
+    source_link = RAW_REPO_LINK + get_latest_release_tag() + "/" + FILE_CONFIG
     logger.warning(f"Downloading new config via url: - {source_link}")
     return update_file(FILE_CONFIG_YAML, source_link, FILE_CONFIG)
 
@@ -5937,7 +5937,7 @@ def download_autoscaling():
     Use autoscaling url from configuration file.
     :return:
     """
-    source_link = REPO_LINK + get_latest_release_tag() + "/" + FILE_ID
+    source_link = RAW_REPO_LINK + get_latest_release_tag() + "/" + FILE_ID
     logger.warning(f"Downloading new script via url: - {source_link}")
     return update_file(FILE_PROG, source_link, FILE_ID)
 
