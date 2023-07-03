@@ -43,7 +43,7 @@ PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
 AUTOSCALING_VERSION = "1.1.0"
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
-REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/releases/latest"
+REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
 
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
