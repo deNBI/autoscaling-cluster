@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
 AUTOSCALING_VERSION = "1.1.0"
-REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
+REPO_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/releases/latest"
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
@@ -5753,7 +5753,7 @@ def version_check(version):
 
 
 def get_latest_release_tag():
-    release_url = REPO_LINK + "/releases/latest"
+    release_url = REPO_LINK + "releases/latest"
     response = requests.get(release_url)
     latest_release = response.json()
     latest_tag = latest_release["tag_name"]
