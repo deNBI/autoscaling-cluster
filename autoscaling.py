@@ -6,6 +6,7 @@ import csv
 import datetime
 import difflib
 import enum
+import filecmp
 import hashlib
 import inspect
 import json
@@ -607,162 +608,6 @@ class SlurmInterface(SchedulerInterface):
         os.system("sudo scontrol update nodename=" + str(w_key) + " state=resume")
 
 
-class Scaling:
-    def __init__(self, password, dummy_worker):
-        self.password = password
-        self.dummy_worker = dummy_worker
-        self.data = self.get_cluster_data()
-        self.replace_cidr_for_nsf_mount()
-        if self.data is None:
-            logger.error("get scaling  data: None")
-            return
-        self.master_data = self.data["master"]
-        self.cluster_data = [
-            worker
-            for worker in self.data["active_worker"]
-            if worker is not None
-            and worker["status"] == "ACTIVE"
-            and worker["ip"] is not None
-        ]
-
-        self.valid_upscale_ips = [cl["ip"] for cl in self.cluster_data]
-        logger.info(f"Current Worker IPs: {self.valid_upscale_ips}")
-
-        if self.cluster_data:
-            self.delete_workers_ip_yaml()
-            workers_data = self.create_worker_yml_file()
-            self.update_workers_yml(worker_data=workers_data)
-            self.add_ips_to_ansible_hosts()
-        else:
-            # keep dummy worker alive
-            self.delete_workers_ip_yaml()
-            workers_data = [dummy_worker]
-            logger.info(pformat(workers_data))
-            self.update_workers_yml(worker_data=workers_data)
-            logger.info("No active worker found!")
-
-    def update_workers_yml(self, worker_data):
-        logger.info("Update Worker YAML")
-        logger.debug(f"Update Worker Yaml with data: - {worker_data}")
-        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
-            stream.seek(0)
-            try:
-                instances_mod = {
-                    "workers": [],
-                    "deletedWorkers": [],
-                    "master": self.master_data,
-                }
-                if self.dummy_worker is not None:
-                    instances_mod["workers"].append(self.dummy_worker)
-
-                for worker in worker_data:
-                    instances_mod["workers"].append(worker)
-
-                stream.seek(0)
-                stream.truncate()
-                yaml.dump(instances_mod, stream)
-            except yaml.YAMLError as exc:
-                logger.error("YAMLError ", exc)
-                sys.exit(1)
-
-    def replace_cidr_for_nsf_mount(self):
-        print("Get CIDR from common configuration")
-        with open(COMMON_CONFIGURATION_YML, "r", encoding="utf8") as stream:
-
-            try:
-                common_configuration_data = yaml.safe_load(stream)
-                cidr = common_configuration_data["CIDR"]
-                print(f"Current CIDR: {cidr}")
-                new_cidr = cidr[:7] + ".0.0/16"
-                if cidr == new_cidr:
-                    print("CIDR is already fixed!")
-                    return
-                common_configuration_data["CIDR"] = new_cidr
-
-            except yaml.YAMLError as exc:
-                print(exc)
-                sys.exit(1)
-        with open(COMMON_CONFIGURATION_YML, "w", encoding="utf8") as f:
-            print(f"Replace old CIDR with: {new_cidr}")
-            yaml.dump(common_configuration_data, f)
-
-    def get_cluster_data(self):
-
-        res = requests.get(
-            url=get_url_info_cluster(),
-            json={
-                "password": self.password,
-                "version": AUTOSCALING_VERSION,
-            },
-        )
-        if res.status_code == HTTP_CODE_OK:
-            res = res.json()
-            version_check(res["VERSION"])
-            return res
-        if res.status_code == HTTP_CODE_UNAUTHORIZED:
-            print(get_wrong_password_msg())
-            sys.exit(1)
-        else:
-            print("server error - unable to receive cluster data")
-            return None
-
-    def validate_ip(self, ip):
-        print("Validate  IP: ", ip)
-        return re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
-
-    def create_worker_yml_file(self):
-        workers_data = []
-        for data in self.cluster_data:
-            yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
-            if not os.path.exists(yaml_file_target):
-                with open(yaml_file_target, "w+", encoding="utf8") as target:
-                    try:
-                        yaml.dump(data, target)
-                    except yaml.YAMLError as exc:
-                        print("YAMLError ", exc)
-                        sys.exit(1)
-            else:
-                print(f"Yaml for worker with IP {data['ip']} already exists")
-            workers_data.append(data)
-
-        return workers_data
-
-    def delete_workers_ip_yaml(self):
-        ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-        files = os.listdir(PLAYBOOK_VARS_DIR)
-        ip_addresses = []
-        for file in files:
-            match = re.search(ip_pattern, file)
-            if match:
-                ip_addresses.append(match.group())
-        for ip in ip_addresses:
-            if ip not in self.valid_upscale_ips:
-                yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
-                if os.path.isfile(yaml_file):
-                    os.remove(yaml_file)
-                    print("Deleted YAML ", yaml_file)
-
-                else:
-                    print("Yaml already deleted: ", yaml_file)
-
-    def add_ips_to_ansible_hosts(self):
-        print("Add ips to ansible_hosts")
-        with open(ANSIBLE_HOSTS_FILE, "r", encoding="utf8") as in_file:
-            buf = in_file.readlines()
-
-        with open(ANSIBLE_HOSTS_FILE, "w", encoding="utf8") as out_file:
-            found_workers = False
-            for line in buf:
-                if "[workers]" in line:
-                    found_workers = True
-                    out_file.write(line)  # Write the original "[workers]" line
-                    for ip in self.valid_upscale_ips:
-                        ip_line = f"{ip} ansible_connection=ssh ansible_python_interpreter=/usr/bin/python3 ansible_user=ubuntu\n"
-                        out_file.write(ip_line)
-                elif not found_workers:
-                    out_file.write(line)
-
-
 def run_ansible_playbook():
     """
     Run ansible playbook with system call.
@@ -859,19 +704,22 @@ def rescale_init(cluster_data, dummy_worker):
 
     logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
     try:
-        Scaling(
-            password=__get_cluster_password(),
-            dummy_worker=dummy_worker,
-        )
-        playbook_success = run_ansible_playbook()
-        if not playbook_success:
-            # intercept random and temporal errors
-            logger.error("ansible playbook failed, second retry in 10 seconds")
-            time.sleep(10)
+        host_file_changed = update_all_yml_files(dummy_worker=dummy_worker)
+        if host_file_changed:
+            logger.info("Host File changed. Try Running Playbook")
             playbook_success = run_ansible_playbook()
             if not playbook_success:
-                logger.error("ansible playbook failed again")
-        return playbook_success
+                # intercept random and temporal errors
+                logger.error("ansible playbook failed, second retry in 10 seconds")
+                time.sleep(10)
+                playbook_success = run_ansible_playbook()
+                if not playbook_success:
+                    logger.error("ansible playbook failed again")
+            return playbook_success
+        else:
+            logger.info("Host File not changed. Skipping Playbook")
+
+            return True
     except TypeError:
         logger.debug("TypeError: api data may be broken.")
     return False
@@ -1620,7 +1468,6 @@ def get_cluster_data():
     """
     try:
         json_data = {
-            "scaling": "scaling_up",
             "password": __get_cluster_password(),
             "version": AUTOSCALING_VERSION,
         }
@@ -1633,7 +1480,6 @@ def get_cluster_data():
             logger.debug(pformat(res))
             return res
         if response.status_code == HTTP_CODE_UNAUTHORIZED:
-            print(get_wrong_password_msg())
             logger.error(get_wrong_password_msg())
             sys.exit(1)
         if response.status_code == HTTP_CODE_OUTDATED:
@@ -4175,7 +4021,7 @@ def multiscale(flavor_data, dummy_worker):
     :param dummy_worker: dummy worker data
     :return:
     """
-    Scaling(password=__get_cluster_password(), dummy_worker=dummy_worker)
+    update_all_yml_files(dummy_worker=dummy_worker)
     state = ScaleState.DELAY
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
@@ -4669,6 +4515,163 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     return result_
 
 
+def update_all_yml_files(dummy_worker):
+    logger.info("initiate scaling")
+    data = get_cluster_data()
+    replace_cidr_for_nsf_mount()
+    if data is None:
+        logger.error("get scaling  data: None")
+        return False
+    master_data = data["master"]
+    cluster_data = [
+        worker
+        for worker in data["active_worker"]
+        if worker is not None
+        and worker["status"] == "ACTIVE"
+        and worker["ip"] is not None
+    ]
+
+    valid_upscale_ips = [cl["ip"] for cl in cluster_data]
+    logger.info(f"Current Worker IPs: {valid_upscale_ips}")
+
+    delete_workers_ip_yaml(valid_upscale_ips=valid_upscale_ips)
+
+    if cluster_data:
+        workers_data = create_worker_yml_file(cluster_data=cluster_data)
+
+    else:
+        logger.info("No active worker found!")
+        # keep dummy worker alive
+        workers_data = [dummy_worker]
+        logger.info(pformat(workers_data))
+    update_workers_yml(
+        worker_data=workers_data, master_data=master_data, dummy_worker=dummy_worker
+    )
+    host_file_changed = add_ips_to_ansible_hosts(valid_upscale_ips=valid_upscale_ips)
+    return host_file_changed
+
+
+def update_workers_yml(master_data, worker_data, dummy_worker):
+    logger.info("Update Worker YAML")
+    logger.info(f"Update Worker Yaml with data: - {worker_data}")
+    instances_mod = {
+        "workers": [],
+        "deletedWorkers": [],
+        "master": master_data,
+    }
+    if dummy_worker is not None:
+        instances_mod["workers"].append(dummy_worker)
+
+    logger.debug(f"New Instance YAML:\n  {instances_mod}")
+
+    with open(INSTANCES_YML, "w", encoding="utf8") as stream:
+        try:
+            yaml.dump(instances_mod, stream)
+        except yaml.YAMLError as exc:
+            logger.error("YAML Error: %s", exc)
+            sys.exit(1)
+
+
+def replace_cidr_for_nsf_mount():
+    logger.info("Get CIDR from common configuration")
+    with open(COMMON_CONFIGURATION_YML, "r", encoding="utf8") as stream:
+
+        try:
+            common_configuration_data = yaml.safe_load(stream)
+            cidr = common_configuration_data["CIDR"]
+            logger.info(f"Current CIDR: {cidr}")
+            new_cidr = cidr[:7] + ".0.0/16"
+            if cidr == new_cidr:
+                logger.info("CIDR is already fixed!")
+                return
+            common_configuration_data["CIDR"] = new_cidr
+
+        except yaml.YAMLError as exc:
+            logger.exception(exc)
+            sys.exit(1)
+    with open(COMMON_CONFIGURATION_YML, "w", encoding="utf8") as f:
+        logger.info(f"Replace old CIDR with: {new_cidr}")
+        yaml.dump(common_configuration_data, f)
+
+
+def validate_ip(ip):
+    logger.info("Validate  IP: ", ip)
+    return re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
+
+
+def create_worker_yml_file(cluster_data):
+    workers_data = []
+    for data in cluster_data:
+        yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
+        if not os.path.exists(yaml_file_target):
+            with open(yaml_file_target, "w+", encoding="utf8") as target:
+                try:
+                    yaml.dump(data, target)
+                except yaml.YAMLError as exc:
+                    logger.exception("YAMLError ", exc)
+                    sys.exit(1)
+        else:
+            logger.info(f"Yaml for worker with IP {data['ip']} already exists")
+        workers_data.append(data)
+
+    return workers_data
+
+
+def delete_workers_ip_yaml(valid_upscale_ips):
+    ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+    files = os.listdir(PLAYBOOK_VARS_DIR)
+    ip_addresses = []
+    for file in files:
+        match = re.search(ip_pattern, file)
+        if match:
+            ip_addresses.append(match.group())
+    for ip in ip_addresses:
+        if ip not in valid_upscale_ips:
+            yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
+            if os.path.isfile(yaml_file):
+                os.remove(yaml_file)
+                print("Deleted YAML ", yaml_file)
+
+            else:
+                print("Yaml already deleted: ", yaml_file)
+
+
+def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
+    logger.info("Add IPs to ansible_hosts")
+
+    original_file = ANSIBLE_HOSTS_FILE
+    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
+
+    with open(original_file, "r", encoding="utf8") as in_file:
+        lines = in_file.readlines()
+
+    with open(new_file, "w", encoding="utf8") as out_file:
+        found_workers = False
+        for line in lines:
+            if "[workers]" in line:
+                found_workers = True
+                out_file.write(line)
+                for ip in valid_upscale_ips:
+                    ip_line = f"{ip} ansible_connection=ssh ansible_python_interpreter=/usr/bin/python3 ansible_user=ubuntu\n"
+                    out_file.write(ip_line)
+            elif not found_workers:
+                out_file.write(line)
+
+    hosts_file_changed = not filecmp.cmp(original_file, new_file)
+
+    if hosts_file_changed:
+        logger.info("Ansible Host file has changed!")
+        # Replace the original file with the modified file
+        os.replace(new_file, original_file)
+    else:
+        # Remove the temporary file
+        logger.info("Ansible Host file has NOT changed!")
+
+        os.remove(new_file)
+
+    return hosts_file_changed
+
+
 def cluster_scale_down_specific(
     worker_json, worker_num, rescale, jobs_dict, dummy_worker
 ):
@@ -4726,6 +4729,7 @@ def rescale_cluster(worker_count, dummy_worker):
     :param dummy_worker: dummy worker data
     :return: boolean, success
     """
+    update_all_yml_files(dummy_worker=dummy_worker)
     if worker_count == 0:
         logger.debug("initiate rescale, wait %s seconds", WAIT_CLUSTER_SCALING)
         time.sleep(WAIT_CLUSTER_SCALING)
