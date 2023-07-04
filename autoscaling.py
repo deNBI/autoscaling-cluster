@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.3.0"
+AUTOSCALING_VERSION = "1.4.0"
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
 
@@ -4544,18 +4544,20 @@ def update_all_yml_files(dummy_worker):
         # keep dummy worker alive
         workers_data = [dummy_worker]
         logger.info(pformat(workers_data))
-    update_workers_yml(
+    workers_file_changed = update_workers_yml(
         worker_data=workers_data, master_data=master_data, dummy_worker=dummy_worker
     )
     host_file_changed = add_ips_to_ansible_hosts(valid_upscale_ips=valid_upscale_ips)
-    return host_file_changed
+    return host_file_changed or workers_file_changed
 
 
 def update_workers_yml(master_data, worker_data, dummy_worker):
     logger.info("Update Worker YAML")
     logger.info(f"Update Worker Yaml with data: - {worker_data}")
+    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
+
     instances_mod = {
-        "workers": [],
+        "workers": worker_data,
         "deletedWorkers": [],
         "master": master_data,
     }
@@ -4564,12 +4566,25 @@ def update_workers_yml(master_data, worker_data, dummy_worker):
 
     logger.debug(f"New Instance YAML:\n  {instances_mod}")
 
-    with open(INSTANCES_YML, "w", encoding="utf8") as stream:
+    with open(new_file, "w", encoding="utf8") as in_file:
         try:
-            yaml.dump(instances_mod, stream)
+            yaml.dump(instances_mod, in_file)
         except yaml.YAMLError as exc:
             logger.error("YAML Error: %s", exc)
             sys.exit(1)
+    workers_file_changed = not filecmp.cmp(INSTANCES_YML, new_file)
+
+    if workers_file_changed:
+        logger.info("Workers  file has changed!")
+        # Replace the original file with the modified file
+        os.replace(new_file, INSTANCES_YML)
+    else:
+        # Remove the temporary file
+        logger.info("Workers  file has NOT changed!")
+
+        os.remove(new_file)
+
+    return workers_file_changed
 
 
 def replace_cidr_for_nsf_mount():
@@ -5675,6 +5690,7 @@ def automatic_update(latest_version: None):
             download_autoscaling(latest_version=latest_version)
             sys.exit(1)
         update_autoscaling()
+
     else:
         sys.exit(1)
 
@@ -5686,6 +5702,7 @@ def update_autoscaling():
     """
     logger.debug("update autoscaling")
     if download_autoscaling():
+        logger.debug("Restart Service")
         restart_systemd_service()
 
 
@@ -5733,7 +5750,7 @@ def status_response_systemd_service():
         "systemctl is-active autoscaling.service", shell=True, stdout=subprocess.PIPE
     ).stdout
     response = get_status.read().decode()
-    print("autoscaling service: ", response)
+    logger.info("autoscaling service: ", response)
 
 
 def stop_systemd_service():
