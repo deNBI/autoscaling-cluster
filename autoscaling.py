@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+# !/usr/bin/python3
 
 import abc
 import calendar
@@ -41,14 +41,14 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.1.0"
+AUTOSCALING_VERSION = "1.2.0"
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
 
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
-HTTP_CODE_OUTDATED = 405
+HTTP_CODE_OUTDATED = 400
 
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
 IDENTIFIER = "autoscaling"
@@ -607,123 +607,6 @@ class SlurmInterface(SchedulerInterface):
         os.system("sudo scontrol update nodename=" + str(w_key) + " state=resume")
 
 
-class ScalingDown:
-    def __init__(self, password, dummy_worker):
-        self.password = password
-        self.dummy_worker = dummy_worker
-        self.data = self.get_scaling_down_data()
-        if self.data is None:
-            print("get scaling down data: None")
-            return
-        self.valid_delete_ips = [
-            ip
-            for ip in self.data["private_ips"]
-            if ip is not None and self.validate_ip(ip)
-        ]
-        self.master_data = self.data["master"]
-
-        if self.valid_delete_ips:
-            self.remove_worker_from_instances()
-            self.delete_ip_yaml()
-            self.remove_ip_from_ansible_hosts()
-        else:
-            self.remove_worker_from_instances()
-            print("No valid Ips found!")
-
-    def get_scaling_down_data(self):
-        res = requests.post(
-            url=get_url_info_cluster(),
-            json={
-                "scaling": "scaling_down",
-                "password": self.password,
-                "version": AUTOSCALING_VERSION,
-            },
-        )
-        if res.status_code == HTTP_CODE_OK:
-            data_json = res.json()
-            version = data_json["VERSION"]
-            if version != AUTOSCALING_VERSION:
-                print(
-                    OUTDATED_SCRIPT_MSG.format(
-                        SCRIPT_VERSION=AUTOSCALING_VERSION, LATEST_VERSION=version
-                    )
-                )
-                return None
-        elif res.status_code == HTTP_CODE_UNAUTHORIZED:
-            print(get_wrong_password_msg())
-            sys.exit(1)
-        else:
-            print("server error - unable to receive scale down data")
-            return None
-        return res.json()
-
-    def validate_ip(self, ip):
-        print("Validate  IP: ", ip)
-        valid = re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
-        if not valid:
-            print(f"{ip} is no valid Ip! SKIPPING")
-        return valid
-
-    def remove_worker_from_instances(self):
-        print("Removing workers from instances")
-        with open(INSTANCES_YML, "a+", encoding="utf8") as stream:
-            stream.seek(0)
-            try:
-                instances = yaml.safe_load(stream)
-                if not instances:
-                    instances = {
-                        "workers": [],
-                        "deletedWorkers": [],
-                        "master": self.master_data,
-                    }
-                instances_mod = {
-                    "workers": [],
-                    "deletedWorkers": instances["deletedWorkers"],
-                    "master": self.master_data,
-                }
-
-                if instances["workers"] is not None:
-                    for idx, worker in enumerate(instances["workers"]):
-                        # rescue worker data to deletedWorkers
-                        if worker["ip"] in self.valid_delete_ips:
-                            # instances_mod['deletedWorkers'].append(worker)
-                            pass
-                        # rescue real worker data
-                        elif self.dummy_worker is not None:
-                            if worker["ip"] != self.dummy_worker["ip"]:
-                                instances_mod["workers"].append(worker)
-
-                stream.seek(0)
-                stream.truncate()
-                yaml.dump(instances_mod, stream)
-            except yaml.YAMLError as exc:
-                print("YAMLError ", exc)
-                sys.exit(1)
-
-    def delete_ip_yaml(self):
-        print("Delete yaml file")
-        files_to_delete = []
-        for ip in self.valid_delete_ips:
-            yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
-            if os.path.isfile(yaml_file):
-                files_to_delete.append(yaml_file)
-            else:
-                print("Yaml already deleted: ", yaml_file)
-
-    def remove_ip_from_ansible_hosts(self):
-
-        print("Remove ips from ansible_hosts")
-        lines = []
-        with open(ANSIBLE_HOSTS_FILE, "r+", encoding="utf8") as ansible_hosts:
-            for line in ansible_hosts:
-                if not any(bad_word in line for bad_word in self.valid_delete_ips):
-                    lines.append(line)
-            ansible_hosts.seek(0)
-            ansible_hosts.truncate()
-            for line in lines:
-                ansible_hosts.write(line)
-
-
 class Scaling:
     def __init__(self, password, dummy_worker):
         self.password = password
@@ -805,10 +688,9 @@ class Scaling:
 
     def get_cluster_data(self):
 
-        res = requests.post(
+        res = requests.get(
             url=get_url_info_cluster(),
             json={
-                "scaling": "scaling_up",
                 "password": self.password,
                 "version": AUTOSCALING_VERSION,
             },
@@ -1371,7 +1253,7 @@ def get_url_info_cluster():
     """
     :return: return portal api info url
     """
-    return __get_portal_url() + "/clusters/" + cluster_id + "/"
+    return __get_portal_url() + "/clusters_scaling/" + cluster_id + "/scale-data/"
 
 
 def get_url_info_flavors():
@@ -1742,7 +1624,7 @@ def get_cluster_data():
             "password": __get_cluster_password(),
             "version": AUTOSCALING_VERSION,
         }
-        response = requests.post(url=get_url_info_cluster(), json=json_data)
+        response = requests.get(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
@@ -1755,7 +1637,11 @@ def get_cluster_data():
             logger.error(get_wrong_password_msg())
             sys.exit(1)
         if response.status_code == HTTP_CODE_OUTDATED:
-            automatic_update()
+            logger.error(response.json().get("message"))
+
+            latest_version = response.json().get("latest_version", None)
+
+            automatic_update(latest_version=latest_version)
         else:
             logger.error("server error - unable to receive cluster data")
             __csv_log_entry("E", 0, "16")
@@ -2046,12 +1932,14 @@ def get_usable_flavors(quiet, cut):
                 counter += 1
             return list(flavors_data_mod)
         if res.status_code == HTTP_CODE_UNAUTHORIZED:
-            print(get_wrong_password_msg())
             logger.error(get_wrong_password_msg())
             sys.exit(1)
         if res.status_code == HTTP_CODE_OUTDATED:
-            logger.error("version missmatch error")
-            automatic_update()
+            logger.error(res.json().get("message"))
+
+            latest_version = res.json().get("latest_version", None)
+
+            automatic_update(latest_version=latest_version)
         else:
             logger.error(
                 "server error - unable to receive flavor data, code %s", res.status_code
@@ -2063,8 +1951,11 @@ def get_usable_flavors(quiet, cut):
         logger.error(e.response.status_code)
         __csv_log_entry("E", 0, "14")
         if e.response.status_code == HTTP_CODE_OUTDATED:
-            logger.error("version missmatch error")
-            automatic_update()
+            logger.error(e.response.json().get("message"))
+
+            latest_version = e.response.json().get("latest_version", None)
+
+            automatic_update(latest_version=latest_version)
         elif e.response.status_code == HTTP_CODE_UNAUTHORIZED:
             logger.error(get_wrong_password_msg())
         else:
@@ -4531,8 +4422,11 @@ def cloud_api(portal_url_scale, worker_data):
         logger.error(e.response.text)
         logger.error(e.response.status_code)
         if e.response.status_code == HTTP_CODE_OUTDATED:
-            logger.error("version missmatch error")
-            automatic_update()
+            logger.error(e.response.json().get("message"))
+
+            latest_version = e.response.json().get("latest_version", None)
+
+            automatic_update(latest_version=latest_version)
         elif e.response.status_code == HTTP_CODE_UNAUTHORIZED:
             logger.error(get_wrong_password_msg())
         else:
@@ -4937,32 +4831,32 @@ def __print_help():
     print(
         textwrap.dedent(
             """\
-        Option      : Long option       :    Argument     : Meaning
-        ----------------------------------------------------------------------------------
-        _           :                   :                 : rescale with worker check
-        -v          : -version          :                 : print the current version number
-        -h          : -help             :                 : print this help information
-        -fv         : -flavors          :                 : print available flavors
-        -m          : -mode             :                 : activate mode from configuration
-        -p          : -password         :                 : set cluster password
-        -rsc        : -rescale          :                 : run scaling with ansible playbook
-        -s          : -service          :                 : run as service
-        -i          : -ignore           :                 : ignore workers
-        -sdc        : -scaledownchoice  :                 : scale down (worker id) - interactive mode
-        -sdb        : -scaledownbatch   :                 : scale down (batch id)  - interactive mode
-        -suc        : -scaleupchoice    :                 : scale up - interactive mode
-        -sdi        : -scaledownidle    :                 : scale down all workers (idle + worker check)
-        -csd        : -clustershutdown  :                 : delete all workers from cluster (api)
-        -u          : -update           :                 : update autoscaling (exclude configuration)
-        -d          : -drain            :                 : set manual nodes to drain
-                    : -reset            :                 : reset autoscaling and configuration
-                    : -start            :                 : systemd: (re-)start service
-                    : -stop             :                 : systemd: stop service
-                    : -status           :                 : systemd: service status
-                    : -visual           :                 : visualize log data (generate pdf)
-                    : -visual           :"y-m-t-h:y-m-t-h": visualize log data by time range
-                    : -clean            :                 : clean log data
-    """
+            Option      : Long option       :    Argument     : Meaning
+            ----------------------------------------------------------------------------------
+            _           :                   :                 : rescale with worker check
+            -v          : -version          :                 : print the current version number
+            -h          : -help             :                 : print this help information
+            -fv         : -flavors          :                 : print available flavors
+            -m          : -mode             :                 : activate mode from configuration
+            -p          : -password         :                 : set cluster password
+            -rsc        : -rescale          :                 : run scaling with ansible playbook
+            -s          : -service          :                 : run as service
+            -i          : -ignore           :                 : ignore workers
+            -sdc        : -scaledownchoice  :                 : scale down (worker id) - interactive mode
+            -sdb        : -scaledownbatch   :                 : scale down (batch id)  - interactive mode
+            -suc        : -scaleupchoice    :                 : scale up - interactive mode
+            -sdi        : -scaledownidle    :                 : scale down all workers (idle + worker check)
+            -csd        : -clustershutdown  :                 : delete all workers from cluster (api)
+            -u          : -update           :                 : update autoscaling (exclude configuration)
+            -d          : -drain            :                 : set manual nodes to drain
+                        : -reset            :                 : reset autoscaling and configuration
+                        : -start            :                 : systemd: (re-)start service
+                        : -stop             :                 : systemd: stop service
+                        : -status           :                 : systemd: service status
+                        : -visual           :                 : visualize log data (generate pdf)
+                        : -visual           :"y-m-t-h:y-m-t-h": visualize log data by time range
+                        : -clean            :                 : clean log data
+        """
         )
     )
 
@@ -4972,20 +4866,20 @@ def __print_help_debug():
         print(
             textwrap.dedent(
                 """\
-        -cw         : -checkworker      :                 : check for broken worker
-        -nd         : -node             :                 : receive node data
-        -l          : -log              :                 : create csv log entry
-        -c          : -clusterdata      :                 : print cluster data
-        -su         : -scaleup          :                 : scale up default flavor (one worker)
-        -su         : -scaleup          :  number         : scale up default flavor
-        -sus        : -scaleupspecific  : "flavor"  "2"   : scale up by flavor and number
-        -sd         : -scaledown        :                 : scale down cluster, all idle workers
-        -sds        : -scaledownspecific:  wk1,wk2        : scale down cluster by workers
-        -cdb        : -clusterbroken    :                 : delete broken workers (cluster vs scheduler)
-        -t          : -test             :                 : test run
-        -j          : -jobdata          :                 : print current job information
-        -jh         : -jobhistory       :                 : print recent job history
-        """
+            -cw         : -checkworker      :                 : check for broken worker
+            -nd         : -node             :                 : receive node data
+            -l          : -log              :                 : create csv log entry
+            -c          : -clusterdata      :                 : print cluster data
+            -su         : -scaleup          :                 : scale up default flavor (one worker)
+            -su         : -scaleup          :  number         : scale up default flavor
+            -sus        : -scaleupspecific  : "flavor"  "2"   : scale up by flavor and number
+            -sd         : -scaledown        :                 : scale down cluster, all idle workers
+            -sds        : -scaledownspecific:  wk1,wk2        : scale down cluster by workers
+            -cdb        : -clusterbroken    :                 : delete broken workers (cluster vs scheduler)
+            -t          : -test             :                 : test run
+            -j          : -jobdata          :                 : print current job information
+            -jh         : -jobhistory       :                 : print recent job history
+            """
             )
         )
 
@@ -5751,28 +5645,30 @@ def version_check(version):
                 SCRIPT_VERSION=AUTOSCALING_VERSION, LATEST_VERSION=version
             )
         )
-        automatic_update()
+        automatic_update(latest_version=version)
 
 
 def get_latest_release_tag():
     release_url = REPO_API_LINK + "releases/latest"
     response = requests.get(release_url)
     latest_release = response.json()
+    logger.info(f"latest release: {latest_release}")
+
     latest_tag = latest_release["tag_name"]
     return latest_tag
 
 
-def automatic_update():
+def automatic_update(latest_version: None):
     """
     Download the program from sources if automatic update is active.
     Initiate update if started with systemd option otherwise just download the updated version.
     :return:
     """
-    logger.error("wrong autoscaling version detected!")
+    logger.info("Starting Script Autoupdate")
     if config_data["automatic_update"]:
         logger.warning("I try to upgrade!")
         if not systemd_start:
-            download_autoscaling()
+            download_autoscaling(latest_version=latest_version)
             sys.exit(1)
         update_autoscaling()
     else:
@@ -5931,13 +5827,19 @@ def update_file(file_location, url, filename):
     return False
 
 
-def download_autoscaling():
+def download_autoscaling(latest_version=None):
     """
     Download current version of the program.
     Use autoscaling url from configuration file.
     :return:
     """
-    source_link = RAW_REPO_LINK + get_latest_release_tag() + "/" + FILE_ID
+    if latest_version:
+        logger.info(f"Latest Version provided for update: {latest_version}")
+        VERSION = latest_version
+    else:
+        logger.info("Latest Version not provided, requesting from github")
+        VERSION = get_latest_release_tag()
+    source_link = RAW_REPO_LINK + VERSION + "/" + FILE_ID
     logger.warning(f"Downloading new script via url: - {source_link}")
     return update_file(FILE_PROG, source_link, FILE_ID)
 
