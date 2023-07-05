@@ -5689,25 +5689,25 @@ def automatic_update(latest_version: None):
     Initiate update if started with systemd option otherwise just download the updated version.
     :return:
     """
-    logger.info("Starting Script Autoupdate")
+    logger.info(f"Starting Script Autoupdate --> {latest_version}")
     if config_data["automatic_update"]:
         logger.warning("I try to upgrade!")
         if not systemd_start:
             download_autoscaling(latest_version=latest_version)
             sys.exit(1)
-        update_autoscaling()
+        update_autoscaling(latest_version=latest_version)
 
     else:
         sys.exit(1)
 
 
-def update_autoscaling():
+def update_autoscaling(latest_version=None):
     """
     Download current autoscaling version and restart systemd autoscaling service.
     :return:
     """
-    logger.debug("update autoscaling")
-    if download_autoscaling():
+    logger.debug(f"update autoscaling --> {latest_version}")
+    if download_autoscaling(latest_version=latest_version):
         logger.debug("Restart Service")
         restart_systemd_service()
 
@@ -5860,6 +5860,7 @@ def download_autoscaling(latest_version=None):
     Use autoscaling url from configuration file.
     :return:
     """
+    logging.debug(f"Download Autoscaling provided version: {latest_version}")
     if latest_version:
         logger.info(f"Latest Version provided for update: {latest_version}")
         VERSION = latest_version
