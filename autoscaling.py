@@ -1890,6 +1890,7 @@ def __worker_states():
     worker_unknown = []
     worker_error = []
     cluster_data = get_cluster_data()
+    logger.info(cluster_data)
     cluster_workers = get_cluster_workers(cluster_data)
 
     if cluster_workers is not None:
@@ -4563,7 +4564,15 @@ def update_workers_yml(master_data, worker_data, dummy_worker):
     }
     if dummy_worker is not None:
         instances_mod["workers"].append(dummy_worker)
+    worker_ips = set()
+    unique_workers = []
 
+    for worker in worker_data:
+        ip = worker["ip"]
+        if ip not in worker_ips:
+            unique_workers.append(worker)
+            worker_ips.add(ip)
+    instances_mod["workers"] = unique_workers
     logger.debug(f"New Instance YAML:\n  {instances_mod}")
 
     with open(new_file, "w", encoding="utf8") as in_file:
