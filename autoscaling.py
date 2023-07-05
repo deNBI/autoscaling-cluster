@@ -34,7 +34,7 @@ import pandas as pd
 import requests
 import yaml
 
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 OUTDATED_SCRIPT_MSG = (
     "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
     "-  please download the current version and run it again!"
@@ -3953,8 +3953,6 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
     error_states = [
         WORKER_ERROR,
         WORKER_PLANNED,
-        WORKER_PORT_CLOSED,
-        WORKER_PLANNED,
         WORKER_SCHEDULING,
     ]
     worker_cluster_err_list = []
@@ -4022,7 +4020,6 @@ def multiscale(flavor_data, dummy_worker):
     :param dummy_worker: dummy worker data
     :return:
     """
-    update_all_yml_files(dummy_worker=dummy_worker)
     state = ScaleState.DELAY
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
