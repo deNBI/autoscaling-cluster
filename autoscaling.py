@@ -4750,7 +4750,6 @@ def rescale_cluster(worker_count, dummy_worker):
     :param dummy_worker: dummy worker data
     :return: boolean, success
     """
-    update_all_yml_files(dummy_worker=dummy_worker)
     if worker_count == 0:
         logger.debug("initiate rescale, wait %s seconds", WAIT_CLUSTER_SCALING)
         time.sleep(WAIT_CLUSTER_SCALING)
