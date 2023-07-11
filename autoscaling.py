@@ -703,26 +703,7 @@ def rescale_init(cluster_data, dummy_worker):
         dummy_worker = get_dummy_worker(flavor_data)
 
     logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
-    try:
-        host_file_changed = update_all_yml_files(dummy_worker=dummy_worker)
-        if host_file_changed:
-            logger.info("Host File changed. Try Running Playbook")
-            playbook_success = run_ansible_playbook()
-            if not playbook_success:
-                # intercept random and temporal errors
-                logger.error("ansible playbook failed, second retry in 10 seconds")
-                time.sleep(10)
-                playbook_success = run_ansible_playbook()
-                if not playbook_success:
-                    logger.error("ansible playbook failed again")
-            return playbook_success
-        else:
-            logger.info("Host File not changed. Skipping Playbook")
-
-            return True
-    except TypeError:
-        logger.debug("TypeError: api data may be broken.")
-    return False
+    return update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
 
 
 def get_version():
@@ -3953,7 +3934,6 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
     error_states = [
         WORKER_ERROR,
         WORKER_PLANNED,
-        WORKER_SCHEDULING,
     ]
     worker_cluster_err_list = []
     for clt in cluster_workers:
@@ -3961,6 +3941,7 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
         if any(ele in clt["status"] for ele in error_states):
             worker_cluster_err_list.append(clt["hostname"])
     logger.debug("cluster workers, error list: %s", worker_cluster_err_list)
+    logger.debug("cluster workers, missing list %s", worker_missing)
     error_worker_list = worker_missing + worker_cluster_err_list
     if error_worker_list:
         __scale_down_error_workers(error_worker_list, dummy_worker)
@@ -4432,6 +4413,7 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_work
         return False
     # wait for state update
     time.sleep(WAIT_CLUSTER_SCALING)
+    # update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
     worker_json, _, _, _, worker_drain_idle = receive_node_data_db(False)
     scale_down_list = []
 
@@ -4511,6 +4493,30 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
         __csv_log_entry("D", len(worker_hostnames), "4")
         result_ = False
     return result_
+
+
+def update_all_yml_files_and_run_playbook(dummy_worker):
+    logger.info("Update all yml files and run playbook")
+    try:
+        host_file_changed = update_all_yml_files(dummy_worker=dummy_worker)
+        if host_file_changed:
+            logger.info("Host File changed. Try Running Playbook")
+            playbook_success = run_ansible_playbook()
+            if not playbook_success:
+                # intercept random and temporal errors
+                logger.error("ansible playbook failed, second retry in 10 seconds")
+                time.sleep(10)
+                playbook_success = run_ansible_playbook()
+                if not playbook_success:
+                    logger.error("ansible playbook failed again")
+            return playbook_success
+        else:
+            logger.info("Host File not changed. Skipping Playbook")
+
+            return True
+    except TypeError:
+        logger.debug("TypeError: api data may be broken.")
+    return False
 
 
 def update_all_yml_files(dummy_worker):

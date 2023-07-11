@@ -95,8 +95,8 @@ scaling:
 
     default:
       info: 'forecast job time, start multiple flavors, prefer higher flavors (except high memory), smooth time'
-      scale_delay: 60
-      worker_cool_down: 60
+      scale_delay: 100
+      worker_cool_down: 70
       smoothing_coefficient: 0.01
       forecast_by_flavor_history: False
       forecast_by_job_history: True
