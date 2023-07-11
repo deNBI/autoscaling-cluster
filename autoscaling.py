@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.4.2"
+AUTOSCALING_VERSION = "1.5.1"
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
 
@@ -3880,7 +3880,7 @@ def __compare_custer_node_workers(cluster_workers, worker_json):
                 worker_json.keys(),
             )
             worker_missing = list(
-                set(cluster_worker_list).difference(list(worker_json.keys()))
+                set(worker_json.keys()).difference(cluster_worker_list)
             )
             if worker_missing:
                 logger.debug("found missing workers in node data %s", worker_missing)
