@@ -4003,6 +4003,8 @@ def multiscale(flavor_data, dummy_worker):
     :return:
     """
     state = ScaleState.DELAY
+    update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
+
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
     worker_copy = None
