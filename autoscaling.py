@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.5.1"
+AUTOSCALING_VERSION = "1.5.2"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -4003,6 +4003,7 @@ def multiscale(flavor_data, dummy_worker):
     :return:
     """
     state = ScaleState.DELAY
+    update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
     worker_copy = None
@@ -4208,10 +4209,13 @@ def __cloud_api_(portal_url_scale, worker_data):
             logger.debug(f"Set New Password: {password}")
             with open(CLUSTER_PASSWORD_FILE, "w", encoding="utf8") as f:
                 f.write(json.dumps(response_json))
+            return True
         else:
             logger.debug("No password found in the response.")
+            return False
     except json.JSONDecodeError:
         logger.debug("Invalid JSON response.")
+        return False
 
 
 def __sleep_on_server_error():
@@ -4414,7 +4418,6 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_work
         return False
     # wait for state update
     time.sleep(WAIT_CLUSTER_SCALING)
-    # update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
     worker_json, _, _, _, worker_drain_idle = receive_node_data_db(False)
     scale_down_list = []
 
@@ -5893,23 +5896,44 @@ def function_test():
     if not scheduler_interface.scheduler_function_test():
         result_ = False
         logger.error("scheduler interface problem")
+        return result_
+
+    logger.info("Scheduler interface working")
 
     if get_cluster_workers_from_api() is None:
         logger.error("unable to receive cluster data")
         result_ = False
+        return result_
 
+    logger.info("Cluster data recieved")
     fv_tmp = get_usable_flavors(False, True)
     if fv_tmp is not None:
-        logger.debug("test scale up %s", fv_tmp[-1])
-        if not __cluster_scale_up_specific(fv_tmp[-1]["flavor"]["name"], 1, True, None):
-            logger.error("unable to receive flavor data")
-            result_ = False
-        else:
-            if not __cluster_scale_down_complete():
-                result_ = False
+
+        smallest_flavor = fv_tmp[-1]
+        logger.info(f"recieved flavor data  -- smallest -> {smallest_flavor}")
+
     else:
         logger.error("unable to receive flavor data")
         result_ = False
+        return result_
+    logger.info("Flavor data recieved")
+
+    logger.debug("test scale up %s", smallest_flavor)
+    if not __cluster_scale_up_specific(
+        smallest_flavor["flavor"]["name"], 1, True, None
+    ):
+        logger.error("unable to scale up")
+        result_ = False
+        return result_
+
+    logger.info("Scale up completed")
+
+    if not __cluster_scale_down_complete():
+        result_ = False
+        logger.error("unable to scale down")
+        return result_
+
+    logger.info("Scale down completed")
 
     logger.info("function test result: %s", result_)
 
