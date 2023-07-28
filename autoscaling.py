@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.5.2"
+AUTOSCALING_VERSION = "1.5.3"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -4496,6 +4496,8 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     else:
         __csv_log_entry("D", len(worker_hostnames), "4")
         result_ = False
+    update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
+
     return result_
 
 
