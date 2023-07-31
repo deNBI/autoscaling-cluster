@@ -1,6 +1,6 @@
 Cython==0.29.35
 matplotlib==3.7.1
-numpy==1.24.4
+numpy==1.25.2
 pandas==2.0.3
 PyYAML==6.0
 requests==2.31.0
