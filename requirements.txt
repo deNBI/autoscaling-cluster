@@ -1,4 +1,4 @@
-Cython==0.29.35
+Cython==0.29.36
 matplotlib==3.7.1
 numpy==1.25.2
 pandas==2.0.3
