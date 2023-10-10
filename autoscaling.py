@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.1"
+AUTOSCALING_VERSION = "1.7.2"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -2654,7 +2654,7 @@ def set_nodes_to_drain(
             )
             if missing_flavors and (NODE_DRAIN in w_value["state"]):
                 logger.debug("missing_flavors: resume %s - keep worker active?", w_key)
-                # scheduler_interface.set_node_to_resume(w_key)
+                # scheduler_interface.set_nodfe_to_resume(w_key)
             # worker resources are over required resources
             elif (
                     __compare_worker_high_vs_flavor(fv_max, w_value)
