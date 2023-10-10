@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.6.0"
+AUTOSCALING_VERSION = "1.7.0"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -342,9 +342,9 @@ class SlurmInterface(SchedulerInterface):
         """
         try:
             nodes = pyslurm.Nodes.load()
-            node_dict={}
-            for key,value in nodes.items():
-                node_dict[key]=value.to_dict()
+            node_dict = {}
+            for key, value in nodes.items():
+                node_dict[key] = value.to_dict()
             logger.info(node_dict)
             return node_dict
         except ValueError as e:
@@ -621,7 +621,8 @@ def run_ansible_playbook():
     result_ = False
 
     try:
-        subprocess.run(
+        # Run the subprocess and capture its output
+        process = subprocess.Popen(
             [
                 "ansible-playbook",
                 "--forks",
@@ -631,12 +632,25 @@ def run_ansible_playbook():
                 "ansible_hosts",
                 "site.yml",
             ],
-            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,  # To work with text output
         )
-        logger.debug("ansible playbook success")
-        result_ = True
-    except subprocess.CalledProcessError:
-        logger.error("subprocess failed running ansible-playbook")
+
+        # Log the output with the [ANSIBLE] prefix
+        for line in process.stdout:
+            logger.debug("[ANSIBLE] " + line.strip())
+
+        # Wait for the subprocess to complete and get the return code
+        return_code = process.wait()
+
+        if return_code == 0:
+            logger.debug("ansible playbook success")
+            result_ = True
+        else:
+            logger.error("ansible playbook failed with return code: " + str(return_code))
+    except Exception as e:
+        logger.error("Error running ansible-playbook: " + str(e))
 
     return result_
 
@@ -712,7 +726,7 @@ def get_version():
     Print the current autoscaling version.
     :return:
     """
-    print("Version: ", AUTOSCALING_VERSION)
+    logger.debug("Version: ", AUTOSCALING_VERSION)
 
 
 def __update_playbook_scheduler_config(set_config):
@@ -758,7 +772,7 @@ def __current_usage(worker_json, jobs_json):
             if "worker" not in key:
                 continue
             if (NODE_ALLOCATED in value["state"]) or (NODE_MIX in value["state"]):
-                cpu_alloc += value["cpus"]
+                cpu_alloc += value["total_cpus"]
                 mem_alloc += value["real_memory"]
                 if NODE_DRAIN in value["state"]:
                     if NODE_ALLOCATED in value["state"]:
@@ -771,7 +785,7 @@ def __current_usage(worker_json, jobs_json):
                     elif NODE_MIX in value["state"]:
                         mem_mix_no_drain += value["real_memory"]
             elif NODE_IDLE in value["state"]:
-                cpu_idle += value["cpus"]
+                cpu_idle += value["total_cpus"]
                 mem_idle += value["real_memory"]
                 if NODE_DRAIN in value["state"]:
                     mem_idle_drain += value["real_memory"]
@@ -956,12 +970,12 @@ def __csv_log_entry(scale_ud, worker_change, reason):
         log_entry.update({"cluster_worker": len(cluster_worker_list)})
         log_entry.update({"worker_credit_data": worker_credit_data})
     except NameError as e:
-        print("job data from interface not usable, %s", e)
+        logger.debug("job data from interface not usable, %s", e)
 
     w_data = []
     for data in header:
         if data not in log_entry:
-            print("missing ", data)
+            logger.debug("missing ", data)
             continue
         w_data.append(log_entry[data])
     __csv_writer(LOG_CSV, w_data)
@@ -1008,7 +1022,7 @@ def ___write_yaml_file(yaml_file_target, yaml_data):
         try:
             yaml.dump(yaml_data, target)
         except yaml.YAMLError as exc:
-            print(exc)
+            logger.debug(exc)
             sys.exit(1)
 
 
@@ -1410,7 +1424,7 @@ def receive_completed_job_data(days):
             sorted(jobs_dict.items(), key=lambda k: (k[1]["end"]), reverse=False)
         )
         for key, value in list(jobs_dict.items()):
-            print(value["end"])
+            logger.debug(value["end"])
     if jobs_dict is None:
         jobs_dict = {}
     return jobs_dict
@@ -1480,7 +1494,7 @@ def get_cluster_data():
         if e.response.status_code == HTTP_CODE_OUTDATED:
             logger.error("version missmatch error")
         elif requests.exceptions.HTTPError == HTTP_CODE_UNAUTHORIZED:
-            print(get_wrong_password_msg())
+            logger.debug(get_wrong_password_msg())
             logger.error(get_wrong_password_msg())
         else:
             __sleep_on_server_error()
@@ -2227,8 +2241,8 @@ def __worker_match_to_job(j_value, w_value):
 
     try:
         w_mem_tmp = int(w_value["real_memory"])
-        w_cpu = int(w_value["cpus"])
-        w_tmp_disk = int(w_value["tmp_disk"])
+        w_cpu = int(w_value["total_cpus"])
+        w_tmp_disk = int(w_value["temporary_disk"] or 0)
 
         j_cpu = int(j_value["req_cpus"])
         j_mem = int(j_value["req_mem"])
@@ -2495,10 +2509,10 @@ def __compare_worker_high_vs_flavor(fv_tmp, w_value):
     fv_mem = int(fv_tmp["available_memory"])
     w_mem_tmp = int(w_value["real_memory"])
 
-    if fv_mem < w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["cpus"]:
+    if fv_mem < w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["total_cpus"]:
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["tmp_disk"]):
+        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["temporary_disk"] or 0):
             return True
     return False
 
@@ -2513,10 +2527,10 @@ def __compare_worker_meet_flavor(fv_tmp, w_value):
     fv_mem = int(fv_tmp["available_memory"])
     w_mem_tmp = int(w_value["real_memory"])
 
-    if fv_mem <= w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["cpus"]:
+    if fv_mem <= w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["total_cpus"]:
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["tmp_disk"]):
+        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["temporary_disk"]):
             return True
     return False
 
@@ -2530,10 +2544,10 @@ def __compare_worker_match_flavor(fv_tmp, w_value):
     """
     fv_mem = int(fv_tmp["available_memory"])
     w_mem_tmp = int(w_value["real_memory"])
-    if (fv_mem == w_mem_tmp) and int(fv_tmp["flavor"]["vcpus"]) >= int(w_value["cpus"]):
+    if (fv_mem == w_mem_tmp) and int(fv_tmp["flavor"]["vcpus"]) >= int(w_value["total_cpus"]):
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) >= int(w_value["tmp_disk"]):
+        if int(fv_tmp["flavor"]["tmp_disk"]) >= int(w_value["temporary_disk"]):
             return True
     return False
 
@@ -2630,12 +2644,12 @@ def set_nodes_to_drain(
                         continue
             logger.debug(
                 "worker disk %s, flavor disk %s",
-                int(w_value["tmp_disk"]),
-                int(fv_max["flavor"]["tmp_disk"]),
+                int(w_value["temporary_disk"]),
+                int(fv_max["flavor"]["temporary_disk"]),
             )
             logger.debug(
                 "w_cpus %s, cpus %s",
-                int(w_value["cpus"]),
+                int(w_value["total_cpus"]),
                 int(fv_max["flavor"]["vcpus"]),
             )
             if missing_flavors and (NODE_DRAIN in w_value["state"]):
@@ -4663,10 +4677,10 @@ def delete_workers_ip_yaml(valid_upscale_ips):
             yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
             if os.path.isfile(yaml_file):
                 os.remove(yaml_file)
-                print("Deleted YAML ", yaml_file)
+                logger.debug("Deleted YAML ", yaml_file)
 
             else:
-                print("Yaml already deleted: ", yaml_file)
+                logger.debug("Yaml already deleted: ", yaml_file)
 
 
 def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
@@ -4857,14 +4871,14 @@ def __start_service():
         download_autoscaling_config()
 
     if not os.path.exists(CLUSTER_PASSWORD_FILE):
-        print("cluster password file missing")
+        logger.debug("cluster password file missing")
         __set_cluster_password()
-    print("restarting service ... ")
+    logger.debug("restarting service ... ")
     restart_systemd_service()
 
 
 def __print_help():
-    print(
+    logger.debug(
         textwrap.dedent(
             """\
             Option      : Long option       :    Argument     : Meaning
@@ -4899,7 +4913,7 @@ def __print_help():
 
 def __print_help_debug():
     if LOG_LEVEL == logging.DEBUG:
-        print(
+        logger.debug(
             textwrap.dedent(
                 """\
             -cw         : -checkworker      :                 : check for broken worker
@@ -5105,15 +5119,15 @@ def __cluster_scale_up_choice():
                         upscale_sum += upscale_num
                         flavor_names.append({flavor_name, upscale_num})
                     else:
-                        print("wrong scale up number")
+                        logger.debug("wrong scale up number")
                 else:
-                    print("wrong flavor number")
+                    logger.debug("wrong flavor number")
             except (ValueError, IndexError):
-                print("wrong values")
+                logger.debug("wrong values")
                 sys.exit(1)
         flavor_next = input("start another flavor? y/n: ")
-        print(flavor_next.startswith("y"))
-        print(flavor_names)
+        logger.debug(flavor_next.startswith("y"))
+        logger.debug(flavor_names)
         if not flavor_next.startswith("y"):
             break
 
@@ -5145,7 +5159,7 @@ def __cluster_scale_down_choice_batch():
                     batch_id,
                     json.dumps(key),
                     json.dumps(value["state"]),
-                    json.dumps(value["cpus"]),
+                    json.dumps(value["total_cpus"]),
                     json.dumps(value["real_memory"]),
                 )
         worker_num = input("enter worker batch id for scale-down: ")
@@ -5159,7 +5173,7 @@ def __cluster_scale_down_choice_batch():
                     index,
                     json.dumps(key),
                     json.dumps(value["state"]),
-                    json.dumps(value["cpus"]),
+                    json.dumps(value["total_cpus"]),
                     json.dumps(value["real_memory"]),
                 )
                 scale_down_list.append(key)
@@ -5190,7 +5204,7 @@ def __cluster_scale_down_choice():
                     index,
                     json.dumps(key),
                     json.dumps(value["state"]),
-                    json.dumps(value["cpus"]),
+                    json.dumps(value["total_cpus"]),
                     json.dumps(value["real_memory"]),
                 )
         while True:
@@ -5209,7 +5223,7 @@ def __cluster_scale_down_choice():
         return cluster_scale_down_specific_hostnames_list(
             scale_down_list, Rescale.CHECK, None
         )
-    print("worker unavailable!")
+    logger.debug("worker unavailable!")
     return False
 
 
@@ -5230,7 +5244,7 @@ def __worker_drain_choice():
                     index,
                     json.dumps(key),
                     json.dumps(value["state"]),
-                    json.dumps(value["cpus"]),
+                    json.dumps(value["total_cpus"]),
                     json.dumps(value["real_memory"]),
                 )
         while True:
@@ -5247,7 +5261,7 @@ def __worker_drain_choice():
         for worker in drain_list:
             scheduler_interface.set_node_to_drain(worker)
         return True
-    print("worker unavailable!")
+    logger.debug("worker unavailable!")
     return False
 
 
@@ -5296,7 +5310,7 @@ def __remove_file(file_path):
         try:
             os.remove(file_path)
         except OSError as e:
-            print(f"Error: {e.filename} - {e.strerror}.")
+            logger.debug(f"Error: {e.filename} - {e.strerror}.")
 
 
 def __clean_log_data():
@@ -5860,8 +5874,8 @@ def update_file(file_location, url, filename):
             res.status_code,
         )
     except requests.exceptions.HTTPError as err:
-        print("error code: ", err.response.status_code)
-        print(err.response.text)
+        logger.debug("error code: ", err.response.status_code)
+        logger.debug(err.response.text)
     return False
 
 
@@ -5954,9 +5968,9 @@ def visualize_cluster_data(time_range):
 
     if time_range and os.path.exists(time_range):
         file_path = time_range
-        print(file_path)
+        logger.debug(file_path)
     file_path_complete = file_path + "_" + "visual.pdf"
-    print("save to ", file_path_complete)
+    logger.debug("save to ", file_path_complete)
     pdf = matplotlib.backends.backend_pdf.PdfPages(file_path + "_" + "visual.pdf")
     with open(file_path, newline="", encoding="utf8") as csv_file:
         my_data = pd.read_csv(csv_file, sep=",", on_bad_lines="warn")
@@ -5977,21 +5991,21 @@ def visualize_cluster_data(time_range):
                     stop_time[0], stop_time[1], stop_time[2], stop_time[3], 0, 0
                 ).timetuple()
             )
-            print(
+            logger.debug(
                 "requested: \nstart_time ",
                 start_time,
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time)),
             )
-            print(
+            logger.debug(
                 "stop_time ",
                 stop_time,
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stop_time)),
             )
-            print(
+            logger.debug(
                 "available: \nstart_time",
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(my_data.time[0])),
             )
-            print(
+            logger.debug(
                 "stop_time",
                 time.strftime(
                     "%Y-%m-%d %H:%M:%S", time.localtime(my_data.time[my_data.index[-1]])
@@ -6000,7 +6014,7 @@ def visualize_cluster_data(time_range):
             my_data = my_data[(my_data.time > start_time) & (my_data.time < stop_time)]
 
     if my_data.empty:
-        print("no data in this time range")
+        logger.debug("no data in this time range")
         return
     my_data["date"] = my_data["time"].astype("datetime64[s]")
     my_data["alloc"] = my_data["worker_mem_alloc"] / mem_scale
@@ -6022,9 +6036,9 @@ def visualize_cluster_data(time_range):
 
     data_count = my_data.size
 
-    print("data_count: ", data_count, " ")
+    logger.debug("data_count: ", data_count, " ")
     data_count = data_count / 3600
-    print("data_count: ", data_count)
+    logger.debug("data_count: ", data_count)
     width_ = max(data_count * 5, 10)
     fig, ax = plt.subplots(figsize=(width_, 5))
 
@@ -6250,11 +6264,11 @@ def select_mode():
 
             if "info" in yaml_config["scaling"]["mode"][mode]:
                 info = yaml_config["scaling"]["mode"][mode]["info"]
-                print(f"id: {modes_available.index(mode):<2d}, {mode:<20s}: {info:>1s}")
+                logger.debug(f"id: {modes_available.index(mode):<2d}, {mode:<20s}: {info:>1s}")
             else:
-                print(f"id: {modes_available.index(mode):<2d}, {mode:<20s}")
+                logger.debug(f"id: {modes_available.index(mode):<2d}, {mode:<20s}")
 
-        print(
+        logger.debug(
             "current active mode: id {i}, {m}".format(
                 i=modes_available.index(mode_active), m=mode_active
             )
@@ -6267,9 +6281,9 @@ def select_mode():
                 ___write_yaml_file(FILE_CONFIG_YAML, yaml_config)
                 restart_systemd_service_request()
                 return
-        print("missing mode ", mode_id)
+        logger.debug("missing mode ", mode_id)
     except TypeError:
-        print("broken config, use -reset")
+        logger.debug("broken config, use -reset")
 
 
 def __select_ignore_workers():
@@ -6279,16 +6293,16 @@ def __select_ignore_workers():
     workers_ignore = []
     if "ignore_workers" in yaml_config["scaling"]:
         workers_ignore = yaml_config["scaling"]["ignore_workers"]
-    print("current ignored workers:", workers_ignore)
+    logger.debug("current ignored workers:", workers_ignore)
 
     node_dict = receive_node_data_live_uncut()
 
     logger.debug("ignore_workers: %s, node_dict %s", workers_ignore, node_dict.keys())
     while True:
         for i, k in enumerate(node_dict):
-            print(i, k)
+            logger.debug(i, k)
         worker_id = input("worker id (use: 'quit' & 'clear'): ")
-        print("-" + worker_id + "-")
+        logger.debug("-" + worker_id + "-")
         if worker_id == "quit":
             break
         if worker_id == "clear":
@@ -6299,11 +6313,11 @@ def __select_ignore_workers():
         for i, k in enumerate(node_dict):
             worker_id = int(worker_id)
             if worker_id == i and k != NODE_DUMMY:
-                print(i, k)
+                logger.debug(i, k)
                 workers_ignore.append(k)
                 break
-        print("-----")
-        print(workers_ignore)
+        logger.debug("-----")
+        logger.debug(workers_ignore)
     yaml_config["scaling"].update({"ignore_workers": workers_ignore})
     ___write_yaml_file(FILE_CONFIG_YAML, yaml_config)
     restart_systemd_service_request()
@@ -6373,7 +6387,7 @@ if __name__ == "__main__":
             __csv_log_entry("C", "0", "0")
             sys.exit(0)
         elif sys.argv[1] in ["-rsc", "--rsc", "-rescale", "--rescale"]:
-            print("rescale cluster configuration")
+            logger.debug("rescale cluster configuration")
             rescale_init(None, None)
             sys.exit(0)
         elif sys.argv[1] in ["-nd", "--nd", "-node", "--node"]:
@@ -6388,21 +6402,21 @@ if __name__ == "__main__":
             sys.exit(0)
         elif sys.argv[1] in ["-j", "--j", "-jobdata", "--jobdata"]:
             pj, rj = receive_job_data()
-            pprint(__sort_jobs(pj))
-            pprint(__sort_jobs(rj))
+            plogger.debug(__sort_jobs(pj))
+            plogger.debug(__sort_jobs(rj))
             sys.exit(0)
         elif sys.argv[1] in ["-jh", "--jh", "-jobhistory", "--jobhistory"]:
             print_job_history(receive_completed_job_data(__get_history_recall()))
             sys.exit(0)
         elif sys.argv[1] in ["-fv", "--fv", "-flavor", "--flavor"]:
-            print("flavors available:")
+            logger.debug("flavors available:")
             fv_info = get_usable_flavors(False, True)
             if fv_info and LOG_LEVEL == logging.DEBUG:
-                print(pformat(fv_info))
-                print(pformat(get_dummy_worker(fv_info)))
+                logger.debug(pformat(fv_info))
+                logger.debug(pformat(get_dummy_worker(fv_info)))
             sys.exit(0)
         elif sys.argv[1] in ["-c", "--c", "-clusterdata", "--clusterdata"]:
-            pprint(get_cluster_workers_from_api())
+            plogger.debug(get_cluster_workers_from_api())
             sys.exit(0)
         elif sys.argv[1] in ["-visual", "--visual"]:
             visualize_cluster_data(None)
@@ -6430,7 +6444,7 @@ if __name__ == "__main__":
             logger.debug("autoscaling with %s: ", " ".join(sys.argv))
             if len(sys.argv) == 2:
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
-                    print("scale-up")
+                    logger.debug("scale-up")
                     __cluster_scale_up_test(1)
                 elif arg in ["-suc", "--suc", "-scaleupchoice", "--scaleupchoice"]:
                     __cluster_scale_up_choice()
@@ -6439,7 +6453,7 @@ if __name__ == "__main__":
                 elif arg in ["-sdb", "--sdb", "-scaledownbatch", "--scaledownbatch"]:
                     __cluster_scale_down_choice_batch()
                 elif arg in ["-sd", "--sd", "-scaledown", "--scaledown"]:
-                    print("scale-down")
+                    logger.debug("scale-down")
                     __cluster_scale_down_idle()
                 elif arg in ["-sdi", "--sdi", "-scaledownidle", "--scaledownidle"]:
                     logger.warning(
@@ -6465,7 +6479,7 @@ if __name__ == "__main__":
                         get_cluster_workers_from_api(), worker_j, None
                     )
                 elif arg in ["-pb", "--pb", "-playbook", "--playbook"]:
-                    print("run_ansible_playbook")
+                    logger.debug("run_ansible_playbook")
                     run_ansible_playbook()
                 elif arg in ["-cw", "--cw", "-checkworker", "--checkworker"]:
                     check_workers(Rescale.INIT, 0, None)
@@ -6479,12 +6493,12 @@ if __name__ == "__main__":
                     if not function_test():
                         sys.exit(1)
                 else:
-                    print("No usage found for param: ", arg)
+                    logger.debug("No usage found for param: ", arg)
                 sys.exit(0)
             elif len(sys.argv) == 3:
                 arg2 = sys.argv[2]
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
-                    print("scale-up")
+                    logger.debug("scale-up")
                     if arg2.isnumeric():
                         __cluster_scale_up_test(int(arg2))
                     else:
@@ -6496,25 +6510,25 @@ if __name__ == "__main__":
                     "-scaledownspecific",
                     "--scaledownspecific",
                 ]:
-                    print("scale-down-specific")
+                    logger.debug("scale-down-specific")
                     if "worker" in arg2:
                         cluster_scale_down_specific_hostnames(arg2, Rescale.CHECK, None)
                     else:
                         logger.error("hostname parameter without 'worker'")
                         sys.exit(1)
                 else:
-                    print("No usage found for param: ", arg, arg2)
+                    logger.debug("No usage found for param: ", arg, arg2)
                     sys.exit(1)
                 sys.exit(0)
             elif len(sys.argv) == 4:
                 if arg in ["-sus", "--sus", "-scaleupspecific", "--scaleupspecific"]:
-                    print("scale-up")
+                    logger.debug("scale-up")
                     if sys.argv[3].isnumeric():
                         __cluster_scale_up_specific(
                             sys.argv[2], int(sys.argv[3]), True, None
                         )
         else:
-            print("\npass a mode via parameter, use -h for help")
+            logger.debug("\npass a mode via parameter, use -h for help")
             rescale_cluster(-1, None)
     finally:
         os.unlink(pidfile)
