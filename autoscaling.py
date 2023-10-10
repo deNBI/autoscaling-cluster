@@ -3079,7 +3079,7 @@ def __current_job_lifetime(
             logger.debug("worker_values %s ", worker_data)
             w_free_cpu = worker_data["total_cpus"]
             w_free_mem = int(worker_data["real_memory"])
-            w_free_disk = worker_data["tmp_disk"]
+            w_free_disk = worker_data["temporary_disk"] or 0
             tmp_cpu = 0
             tmp_mem = 0
             tmp_disk = 0
@@ -3094,7 +3094,7 @@ def __current_job_lifetime(
                     # collect worker usage
                     w_free_cpu -= max(j_value["req_cpus"], 0)
                     w_free_mem -= max(j_value["req_mem"], 0)
-                    w_free_disk -= max(j_value["tmp_disk"], 0)
+                    w_free_disk -= max(j_value["tmp_disk"] or 0, 0)
 
                     logger.debug(
                         "running job %s on compatible worker %s",
@@ -3165,11 +3165,11 @@ def __current_job_lifetime(
             tmp_mem += w_free_mem
             tmp_disk += w_free_disk
             # consider available free memory
-            if isinstance(worker_data["free_mem"], int):
+            if isinstance(worker_data["free_memory"], int):
                 logger.debug(
-                    "free_mem %s, tmp_mem %s", worker_data["free_mem"], tmp_mem
+                    "free_mem %s, tmp_mem %s", worker_data["free_memory"], tmp_mem
                 )
-                tmp_mem = max(worker_data["free_mem"], tmp_mem)
+                tmp_mem = max(worker_data["free_memory"], tmp_mem)
             # check how many jobs we expect to run on available nodes with upcoming worker resources
             if average_job_resources_tmp_disk != 0:
                 simultaneous_jobs_per_worker = min(
