@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.0"
+AUTOSCALING_VERSION = "1.7.1"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -3077,7 +3077,7 @@ def __current_job_lifetime(
                 continue
             logger.debug("check jobs on worker %s", worker)
             logger.debug("worker_values %s ", worker_data)
-            w_free_cpu = worker_data["cpus"]
+            w_free_cpu = worker_data["total_cpus"]
             w_free_mem = int(worker_data["real_memory"])
             w_free_disk = worker_data["tmp_disk"]
             tmp_cpu = 0
