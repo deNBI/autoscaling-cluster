@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.2"
+AUTOSCALING_VERSION = "1.7.3"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -2289,8 +2289,13 @@ def __current_workers_capable(jobs_pending_dict, worker_json, worker_to_check):
                 if "worker" not in w_key:
                     continue
                 if __worker_match_to_job(j_value, w_value):
-                    if w_key in worker_useless:
+                    current_time = int(time.time())
+                    last_busy_time = w_value["last_busy_time"]
+                    time_difference = current_time - last_busy_time
+                    if w_key in worker_useless and time_difference < 3600:
                         worker_useless.remove(w_key)
+                    else:
+                        logger.debug("last_busy_time longer than 1 hour")
                     found_match = True
             if not found_match:
                 worker_not_capable_counter += 1
@@ -4677,10 +4682,10 @@ def delete_workers_ip_yaml(valid_upscale_ips):
             yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
             if os.path.isfile(yaml_file):
                 os.remove(yaml_file)
-                logger.debug("Deleted YAML ", yaml_file)
+                logger.debug(f"Deleted YAML  {yaml_file}")
 
             else:
-                logger.debug("Yaml already deleted: ", yaml_file)
+                logger.debug(f"Yaml already deleted:  {yaml_file}")
 
 
 def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
