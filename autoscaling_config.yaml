@@ -6,6 +6,8 @@ scaling:
   pattern_id: ''
   history_recall: 7
   ignore_workers: [ ]
+  pending_jobs_percent: 1.0
+
 
   mode:
     basic:

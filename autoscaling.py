@@ -1207,8 +1207,13 @@ def __sort_jobs(jobs_pending_dict):
     :return: sorted job list
     """
     if config_data["resource_sorting"]:
-        return __sort_job_by_resources(jobs_pending_dict)
-    return __sort_job_priority(jobs_pending_dict)
+        job_priority = __sort_job_by_resources(jobs_pending_dict)
+    else:
+        job_priority = __sort_job_priority(jobs_pending_dict)
+    pending_jobs_percent = config_data["pending_jobs_percent"]
+    limit = int(pending_jobs_percent * len(job_priority))
+    logger.debug(f"Using {pending_jobs_percent} percent of the jobs for calculating --> {limit} Jobs")
+    return job_priority[:limit]
 
 
 def __sort_job_priority(jobs_dict):
@@ -4669,16 +4674,37 @@ def create_worker_yml_file(cluster_data):
     return workers_data
 
 
+def remove_etc_hosts_entries(ips):
+    hosts_file = '/etc/hosts'
+
+    try:
+        with open(hosts_file, 'r') as file:
+            lines = file.readlines()
+
+        new_lines = [line for line in lines if not any(line.strip().startswith(ip) for ip in ips)]
+
+        with open(hosts_file, 'w') as file:
+            file.writelines(new_lines)
+
+        logger.debug(f"Removed entries with IPs {', '.join(ips)} from /etc/hosts.")
+    except FileNotFoundError:
+        logger.error(f"The file {hosts_file} was not found.")
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
+
+
 def delete_workers_ip_yaml(valid_upscale_ips):
     ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
     files = os.listdir(PLAYBOOK_VARS_DIR)
     ip_addresses = []
+    remove_ips = []
     for file in files:
         match = re.search(ip_pattern, file)
         if match:
             ip_addresses.append(match.group())
     for ip in ip_addresses:
         if ip not in valid_upscale_ips:
+            remove_ips.append(ip)
             yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
             if os.path.isfile(yaml_file):
                 os.remove(yaml_file)
@@ -4686,6 +4712,7 @@ def delete_workers_ip_yaml(valid_upscale_ips):
 
             else:
                 logger.debug(f"Yaml already deleted:  {yaml_file}")
+    remove_etc_hosts_entries(ips=remove_ips)
 
 
 def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
@@ -4997,6 +5024,7 @@ def __example_configuration():
             "history_recall": 7,
             "ignore_workers": [],
             "resource_sorting": True,
+            "pending_jobs_percent": 1.0,
             "mode": {
                 "basic": {
                     "info": "",
