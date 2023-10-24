@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.3"
+AUTOSCALING_VERSION = "1.7.4"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -438,10 +438,10 @@ class SlurmInterface(SchedulerInterface):
             node_dict_format.update(
                 {
                     i["HOSTNAMES"]: {
-                        "cpus": int(i["CPUS"]),
+                        "total_cpus": int(i["CPUS"]),
                         "real_memory": int(i["MEMORY"]),
                         "state": self.__convert_node_state(i["STATE"]),
-                        "tmp_disk": int(i["TMP_DISK"]),
+                        "temporary_disk": int(i["TMP_DISK"]),
                         "node_hostname": i["HOSTNAMES"],
                         "gres": gpu,
                         "free_mem": free_mem,
@@ -504,7 +504,7 @@ class SlurmInterface(SchedulerInterface):
                             "req_mem": self.memory_size_ib(mem[1], mem[2]),
                             "state": state_id,
                             "state_str": i["STATE"],
-                            "tmp_disk": self.memory_size(disk[1], disk[2]),
+                            "temporary_disk": self.memory_size(disk[1], disk[2]),
                             "priority": int(i["PRIORITY"]),
                             "jobname": i["NAME"],
                             "req_gres": i["TRES_PER_NODE"],
@@ -547,8 +547,8 @@ class SlurmInterface(SchedulerInterface):
         :return:
         """
         for key, entry in jobs_dict.items():
-            if "tmp_disk" not in entry:
-                jobs_dict[key]["tmp_disk"] = 0
+            if "temporary_disk" not in entry:
+                jobs_dict[key]["temporary_disk"] = 0
         return dict(jobs_dict)
 
     def fetch_scheduler_job_data_by_range(self, start, end):
@@ -1162,8 +1162,8 @@ def translate_metrics_to_flavor(
                 cpu <= int(fv_data["flavor"]["vcpus"])
                 and mem <= int(fv_data["available_memory"])
                 and (
-                int(tmp_disk) < int(fv_data["flavor"]["tmp_disk"])
-                or (int(tmp_disk) == 0 and int(fv_data["flavor"]["tmp_disk"] >= 0))
+                int(tmp_disk) < int(fv_data["flavor"]["temporary_disk"])
+                or (int(tmp_disk) == 0 and int(fv_data["flavor"]["temporary_disk"] >= 0))
         )
         ):
             # job tmp disk must be lower than flavor tmp disk, exception if both zero
@@ -1233,7 +1233,7 @@ def __sort_job_priority(jobs_dict):
             k[1]["priority"],
             k[1]["req_mem"],
             k[1]["req_cpus"],
-            k[1]["tmp_disk"],
+            k[1]["temporary_disk"],
         ),
         reverse=True,
     )
@@ -1252,7 +1252,7 @@ def __sort_job_by_resources(jobs_dict):
     """
     sorted_job_list = sorted(
         jobs_dict.items(),
-        key=lambda k: (k[1]["req_mem"], k[1]["req_cpus"], k[1]["tmp_disk"]),
+        key=lambda k: (k[1]["req_mem"], k[1]["req_cpus"], k[1]["temporary_disk"]),
         reverse=True,
     )
     return sorted_job_list
@@ -1450,7 +1450,7 @@ def print_job_data(job_data):
                 value["req_mem"],
                 value["req_cpus"],
                 value["priority"],
-                value["tmp_disk"],
+                value["temporary_disk"],
                 value["elapsed"],
             )
     else:
@@ -1535,11 +1535,11 @@ def get_cluster_workers(cluster_data):
                     and w_data["ephemerals"]
                     and "size" in w_data["ephemerals"][0]
             ):
-                cluster_workers[i].update({"tmp_disk": w_data["ephemerals"][0]["size"]})
+                cluster_workers[i].update({"temporary_disk": w_data["ephemerals"][0]["size"]})
             elif "ephemeral_disk" in w_data:
-                cluster_workers[i].update({"tmp_disk": w_data["ephemeral_disk"]})
+                cluster_workers[i].update({"temporary_disk": w_data["ephemeral_disk"]})
             else:
-                cluster_workers[i].update({"tmp_disk": 0})
+                cluster_workers[i].update({"temporary_disk": 0})
                 logger.error("ephemeral missing in cluster worker data")
         worker_filter(cluster_workers)
     return cluster_workers
@@ -1711,11 +1711,11 @@ def get_usable_flavors(quiet, cut):
                 available_memory = reduce_flavor_memory(int(fd["flavor"]["ram_gib"]))
 
                 if "ephemeral_disk" in fd["flavor"]:
-                    fd["flavor"]["tmp_disk"] = convert_gb_to_mib(
+                    fd["flavor"]["temporary_disk"] = convert_gb_to_mib(
                         fd["flavor"]["ephemeral_disk"]
                     )
                 else:
-                    fd["flavor"]["tmp_disk"] = 0
+                    fd["flavor"]["temporary_disk"] = 0
                 val_tmp = []
                 for fd_item in fd.items():
                     val_tmp.append(fd_item)
@@ -1772,7 +1772,7 @@ def get_usable_flavors(quiet, cut):
                         fd["available_count"],
                         fd["real_available_count_openstack"],
                         available_memory,
-                        fd["flavor"]["tmp_disk"],
+                        fd["flavor"]["temporary_disk"],
                         fd["flavor"]["id"],
                         fd["flavor"]["type"]["shortcut"],
                     )
@@ -2111,7 +2111,7 @@ def __drain_worker_check(
                 fv_tmp = translate_metrics_to_flavor(
                     value["req_cpus"],
                     value["req_mem"],
-                    value["tmp_disk"],
+                    value["temporary_disk"],
                     flavor_data,
                     False,
                     False,
@@ -2132,7 +2132,7 @@ def __drain_worker_check(
                     fv_tmp = translate_metrics_to_flavor(
                         value["req_cpus"],
                         value["req_mem"],
-                        value["tmp_disk"],
+                        value["temporary_disk"],
                         flavor_data,
                         False,
                         False,
@@ -2251,7 +2251,7 @@ def __worker_match_to_job(j_value, w_value):
 
         j_cpu = int(j_value["req_cpus"])
         j_mem = int(j_value["req_mem"])
-        j_tmp_disk = int(j_value["tmp_disk"])
+        j_tmp_disk = int(j_value["temporary_disk"])
         if j_mem <= w_mem_tmp and j_cpu <= w_cpu:
             if j_tmp_disk < w_tmp_disk or j_tmp_disk == 0:
                 found_match = True
@@ -2359,7 +2359,7 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
             flavor_tmp = translate_metrics_to_flavor(
                 value["req_cpus"],
                 value["req_mem"],
-                value["tmp_disk"],
+                value["temporary_disk"],
                 flavor_data,
                 available_check,
                 False,
@@ -2371,7 +2371,7 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
                     value["jobname"],
                     value["req_cpus"],
                     value["req_mem"],
-                    value["tmp_disk"],
+                    value["temporary_disk"],
                 )
                 missing_flavors = True
                 # jump to the next job with available flavors
@@ -2429,7 +2429,7 @@ def classify_jobs_to_flavors(job_priority, flavor_data):
                         value["req_mem"],
                         value["req_cpus"],
                         value["priority"],
-                        value["tmp_disk"],
+                        value["temporary_disk"],
                     )
                 logger.debug("\n---------------------------\n")
             count_ += 1
@@ -2453,7 +2453,7 @@ def __worker_no_flavor_separation(job_priority, flavor_data):
             flavor_tmp = translate_metrics_to_flavor(
                 value["req_cpus"],
                 value["req_mem"],
-                value["tmp_disk"],
+                value["temporary_disk"],
                 flavor_data,
                 True,
                 False,
@@ -2465,7 +2465,7 @@ def __worker_no_flavor_separation(job_priority, flavor_data):
                     value["jobname"],
                     value["req_cpus"],
                     value["req_mem"],
-                    value["tmp_disk"],
+                    value["temporary_disk"],
                 )
                 continue
             if flavor_next is None:
@@ -2522,7 +2522,7 @@ def __compare_worker_high_vs_flavor(fv_tmp, w_value):
     if fv_mem < w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["total_cpus"]:
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["temporary_disk"] or 0):
+        if int(fv_tmp["flavor"]["temporary_disk"]) <= int(w_value["temporary_disk"] or 0):
             return True
     return False
 
@@ -2540,7 +2540,7 @@ def __compare_worker_meet_flavor(fv_tmp, w_value):
     if fv_mem <= w_mem_tmp and fv_tmp["flavor"]["vcpus"] <= w_value["total_cpus"]:
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) <= int(w_value["temporary_disk"]):
+        if int(fv_tmp["flavor"]["temporary_disk"]) <= int(w_value["temporary_disk"]):
             return True
     return False
 
@@ -2557,7 +2557,7 @@ def __compare_worker_match_flavor(fv_tmp, w_value):
     if (fv_mem == w_mem_tmp) and int(fv_tmp["flavor"]["vcpus"]) >= int(w_value["total_cpus"]):
         if config_mode["flavor_ephemeral"]:
             return True
-        if int(fv_tmp["flavor"]["tmp_disk"]) >= int(w_value["temporary_disk"]):
+        if int(fv_tmp["flavor"]["temporary_disk"]) >= int(w_value["temporary_disk"]):
             return True
     return False
 
@@ -2603,13 +2603,13 @@ def set_nodes_to_drain(
                 value["jobname"],
                 value["req_cpus"],
                 value["req_mem"],
-                value["tmp_disk"],
+                value["temporary_disk"],
                 value["state"],
             )
             fv_tmp = translate_metrics_to_flavor(
                 value["req_cpus"],
                 value["req_mem"],
-                value["tmp_disk"],
+                value["temporary_disk"],
                 flavor_data,
                 False,
                 False,
@@ -2633,7 +2633,7 @@ def set_nodes_to_drain(
         fv_max["flavor"]["name"],
         fv_max["flavor"]["ram_gib"],
         fv_max["flavor"]["vcpus"],
-        fv_max["flavor"]["tmp_disk"],
+        fv_max["flavor"]["temporary_disk"],
     )
     if not fv_max:
         return worker_data_changed
@@ -2785,7 +2785,7 @@ def convert_to_large_flavor(job_priority, flavors_data, pending_cnt, flavor_min)
         if value["state"] == JOB_PENDING and counter_index > 0:
             tmp_cpu = int(value["req_cpus"])
             tmp_mem = int(value["req_mem"])
-            tmp_disk = int(value["tmp_disk"])
+            tmp_disk = int(value["temporary_disk"])
             counter += 1
             sum_cpu += tmp_cpu
             sum_mem += tmp_mem
@@ -2982,14 +2982,14 @@ def __multiple_jobs_per_flavor(
         jobs_average_memory,
     )
     if (
-            int(flavor_tmp["flavor"]["tmp_disk"]) != 0
+            int(flavor_tmp["flavor"]["temporary_disk"]) != 0
             and average_job_resources_tmp_disk != 0
     ):
         logger.debug(
-            "flavor_next['flavor']['tmp_disk'] %s", flavor_tmp["flavor"]["tmp_disk"]
+            "flavor_next['flavor']['tmp_disk'] %s", flavor_tmp["flavor"]["temporary_disk"]
         )
         jobs_average_tmp_disk = __division_float(
-            flavor_tmp["flavor"]["tmp_disk"], average_job_resources_tmp_disk
+            flavor_tmp["flavor"]["temporary_disk"], average_job_resources_tmp_disk
         )
         # The lowest value over all types of resources is the maximum possible value
         average_jobs_per_flavor = min(
@@ -3104,7 +3104,7 @@ def __current_job_lifetime(
                     # collect worker usage
                     w_free_cpu -= max(j_value["req_cpus"], 0)
                     w_free_mem -= max(j_value["req_mem"], 0)
-                    w_free_disk -= max(j_value["tmp_disk"] or 0, 0)
+                    w_free_disk -= max(j_value["temporary_disk"] or 0, 0)
 
                     logger.debug(
                         "running job %s on compatible worker %s",
@@ -3150,7 +3150,7 @@ def __current_job_lifetime(
                             expected_time_left_sum += expected_time_left
                             tmp_cpu += j_value["req_cpus"]
                             tmp_mem += j_value["req_mem"]
-                            tmp_disk += j_value["tmp_disk"]
+                            tmp_disk += j_value["temporary_disk"]
                         logger.debug(
                             "worker %s, norm %s, job %s",
                             worker,
@@ -3639,7 +3639,7 @@ def __calculate_scale_up_data(
             if fv_fix:
                 if (
                         fv_fix["flavor"]["ram_gib"] >= flavor_tmp["flavor"]["ram_gib"]
-                        and fv_fix["flavor"]["tmp_disk"] >= flavor_tmp["flavor"]["tmp_disk"]
+                        and fv_fix["flavor"]["temporary_disk"] >= flavor_tmp["flavor"]["temporary_disk"]
                         and fv_fix["flavor"]["vcpus"] >= flavor_tmp["flavor"]["vcpus"]
                 ):
                     flavor_tmp = fv_fix
@@ -5585,7 +5585,7 @@ def update_database(flavor_data):
         v_tmp = translate_metrics_to_flavor(
             value["req_cpus"],
             value["req_mem"],
-            value["tmp_disk"],
+            value["temporary_disk"],
             flavor_data,
             False,
             True,
