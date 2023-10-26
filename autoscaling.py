@@ -20,6 +20,7 @@ import sys
 import textwrap
 import time
 import traceback
+import shutil
 from functools import total_ordering
 from logging.handlers import RotatingFileHandler
 from multiprocessing import Process
@@ -42,7 +43,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.4"
+AUTOSCALING_VERSION = "1.7.5"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -2296,8 +2297,13 @@ def __current_workers_capable(jobs_pending_dict, worker_json, worker_to_check):
                 if __worker_match_to_job(j_value, w_value):
                     current_time = int(time.time())
                     last_busy_time = w_value["last_busy_time"]
-                    time_difference = current_time - last_busy_time
-                    if w_key in worker_useless and time_difference < 3600:
+                    if not last_busy_time:
+                        last_busy_longer_than_one_hour = False
+                    else:
+                        time_difference = current_time - last_busy_time
+
+                        last_busy_longer_than_one_hour = time_difference < 3600
+                    if w_key in worker_useless and last_busy_longer_than_one_hour:
                         worker_useless.remove(w_key)
                     else:
                         logger.debug("last_busy_time longer than 1 hour")
@@ -4676,21 +4682,28 @@ def create_worker_yml_file(cluster_data):
 
 def remove_etc_hosts_entries(ips):
     hosts_file = '/etc/hosts'
+    backup_file = f'{AUTOSCALING_FOLDER}/hosts.backup'
+    logger.debug(f"Trying to remove  {ips} from /etc/hosts")
 
     try:
-        with open(hosts_file, 'r') as file:
-            lines = file.readlines()
+        # Create a backup of the original hosts file
+        shutil.copy(hosts_file, backup_file)
 
-        new_lines = [line for line in lines if not any(line.strip().startswith(ip) for ip in ips)]
-
-        with open(hosts_file, 'w') as file:
-            file.writelines(new_lines)
+        # Use sudo to run the command with superuser privileges
+        subprocess.check_call(['sudo', 'python', '-c', f'with open("{hosts_file}", "r") as f:\n  lines = f.readlines()\nnew_lines = [line for line in lines if not any(line.strip().startswith(ip) for ip in {ips})]\nwith open("{hosts_file}", "w") as f:\n  f.writelines(new_lines)'])
 
         logger.debug(f"Removed entries with IPs {', '.join(ips)} from /etc/hosts.")
     except FileNotFoundError:
         logger.error(f"The file {hosts_file} was not found.")
     except Exception as e:
+        # Restore the original hosts file from the backup
+        shutil.copy(backup_file, hosts_file)
         logger.error(f"An error occurred: {str(e)}")
+    finally:
+        # Remove the backup file
+        if os.path.exists(backup_file):
+            os.remove(backup_file)
+
 
 
 def delete_workers_ip_yaml(valid_upscale_ips):
@@ -4712,7 +4725,8 @@ def delete_workers_ip_yaml(valid_upscale_ips):
 
             else:
                 logger.debug(f"Yaml already deleted:  {yaml_file}")
-    remove_etc_hosts_entries(ips=remove_ips)
+    if remove_ips:
+        remove_etc_hosts_entries(ips=remove_ips)
 
 
 def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
