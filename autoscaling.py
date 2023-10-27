@@ -43,7 +43,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.7.5"
+AUTOSCALING_VERSION = "1.7.6"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -1302,7 +1302,7 @@ def __receive_node_stats(node_dict, quiet):
                 )
                 # logger.debug(pformat(key))
                 # logger.debug(pformat(value))
-            if "worker" in key:
+            if key is not None and "worker" in key:
                 worker_count += 1
                 if NODE_DRAIN in value["state"]:
                     worker_drain.append(key)
