@@ -8,7 +8,7 @@ Java must be installed on the master node. On ubuntu it can be installed via apt
 In addition you need to install Nextflow (`curl -s https://get.nextflow.io | bash`).
 
 ```
-nextflow -profile PROFILE
+nextflow run -profile PROFILE simple_many_tasks.nf
 ```
 
 where PROFILE can be either "slurm" or "standard".
