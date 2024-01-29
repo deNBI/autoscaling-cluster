@@ -6371,7 +6371,8 @@ def __select_ignore_workers():
 
 
 if __name__ == "__main__":
-    logger = None
+    logger = setup_logger(LOG_FILE)
+
     scheduler_interface = None
 
     if len(sys.argv) == 2:
@@ -6402,8 +6403,6 @@ if __name__ == "__main__":
             __clean_log_data()
             sys.exit(0)
 
-    if not logger:
-        logger = setup_logger(LOG_FILE)
 
     if len(sys.argv) == 2:
         if sys.argv[1] in ["-reset", "--reset"]:
