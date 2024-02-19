@@ -6371,7 +6371,7 @@ def __select_ignore_workers():
 
 
 if __name__ == "__main__":
-    logger = None
+    logger = setup_logger(LOG_FILE)
     scheduler_interface = None
 
     if len(sys.argv) == 2:
