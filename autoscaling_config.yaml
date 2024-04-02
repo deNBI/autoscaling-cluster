@@ -1,5 +1,5 @@
 scaling:
-  portal_scaling_link: https://simplevm.denbi.de/portal/portal/public/clusters_scaling/
+  portal_scaling_link: https://simplevm.denbi.de/portal/public/clusters_scaling/
   portal_webapp_link: https://simplevm.denbi.de/portal/webapp/#/clusters/overview
   scheduler: slurm
   active_mode: basic
