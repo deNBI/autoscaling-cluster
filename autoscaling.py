@@ -5046,9 +5046,7 @@ def create_pid_file():
 def __example_configuration():
     config_example = {
         "scaling": {
-            "portal_scaling_link": "https://simplevm.denbi.de/portal/portal/public/clusters_scaling/",
-            "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
-            "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
+            "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling/",
             "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
             "scheduler": "slurm",
             "active_mode": "basic",
