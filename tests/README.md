@@ -18,4 +18,3 @@ where PROFILE can be either "slurm" or "standard".
 `--memoryLimit` defines the memory size available for a process. (default: 60 GB)
 
 `--numberOfTasks`  sets the number of tasks to execute. (default: 10)
-
