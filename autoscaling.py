@@ -862,7 +862,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
     fv_data = cluster_worker_to_flavor(flavors_data, cluster_worker)
     if fv_data:
         try:
-            credit = float(fv_data["flavor"]["credits_costs_per_hour"])
+            credit = float(fv_data["flavor"]["credits_cost_per_hour"])
             return credit
         except KeyError:
             logger.error("KeyError, missing credit in flavor data")
@@ -1698,7 +1698,7 @@ def get_usable_flavors(quiet, cut):
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
-                    k["flavor"]["credits_costs_per_hour"],
+                    k["flavor"]["credits_cost_per_hour"],
                     k["flavor"]["ram_gib"],
                     k["flavor"]["vcpus"],
                     k["flavor"]["ephemeral_disk"],
@@ -1768,7 +1768,7 @@ def get_usable_flavors(quiet, cut):
                         fd["flavor"]["ram_gib"],
                         fd["flavor"]["vcpus"],
                         fd["flavor"]["ephemeral_disk"],
-                        fd["flavor"]["credits_costs_per_hour"],
+                        fd["flavor"]["credits_cost_per_hour"],
                     )
                     logger.debug(
                         " project available %sx,"
