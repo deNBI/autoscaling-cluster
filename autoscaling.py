@@ -831,7 +831,7 @@ def cluster_credit_usage():
     worker_credit_data = {}
     if cluster_workers is not None:
         for c_worker in cluster_workers:
-            if c_worker["status"] == WORKER_ACTIVE:
+            if c_worker["status"].upper() == WORKER_ACTIVE:
                 credit_sum += cluster_worker_to_credit(flavors_data, c_worker)
                 if c_worker["flavor"] in worker_credit_data:
                     worker_credit_data[c_worker["flavor"]]["cnt"] += 1
@@ -1085,14 +1085,14 @@ def get_url_scale_up():
     """
     :return: return portal api scale up url
     """
-    return __get_portal_url_scaling() + cluster_id + "/scale-up/"
+    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-up/"
 
 
 def get_url_scale_down_specific():
     """
     :return: return portal api scale down specific url
     """
-    return __get_portal_url_scaling() + cluster_id + "/scale-down/specific/"
+    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-down/specific/"
 
 
 def get_url_info_cluster():
@@ -1478,7 +1478,7 @@ def get_cluster_data():
             "password": __get_cluster_password(),
             "version": AUTOSCALING_VERSION,
         }
-        response = requests.get(url=get_url_info_cluster(), json=json_data)
+        response = requests.post(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
@@ -1909,13 +1909,13 @@ def __worker_states():
             )
             if NODE_DOWN in c_worker["status"]:
                 worker_down.append(c_worker["hostname"])
-            elif WORKER_ERROR == c_worker["status"]:
+            elif WORKER_ERROR == c_worker["status"].upper():
                 logger.error("ERROR %s", c_worker["hostname"])
                 worker_error.append(c_worker["hostname"])
-            elif WORKER_FAILED in c_worker["status"]:
+            elif WORKER_FAILED in c_worker["status"].upper():
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
                 sys.exit(1)
-            elif WORKER_ACTIVE == c_worker["status"]:
+            elif WORKER_ACTIVE == c_worker["status"].upper():
                 worker_active.append(c_worker["hostname"])
             else:
                 worker_unknown.append(c_worker["hostname"])
@@ -3982,7 +3982,7 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
     worker_cluster_err_list = []
     for clt in cluster_workers:
         logger.debug("cluster worker: %s, state %s", clt["hostname"], clt["status"])
-        if any(ele in clt["status"] for ele in error_states):
+        if any(ele in clt["status"].upper() for ele in error_states):
             worker_cluster_err_list.append(clt["hostname"])
     logger.debug("cluster workers, error list: %s", worker_cluster_err_list)
     logger.debug("cluster workers, missing list %s", worker_missing)
@@ -4580,7 +4580,7 @@ def update_all_yml_files(dummy_worker):
         worker
         for worker in data["active_worker"]
         if worker is not None
-        and worker["status"] == "ACTIVE"
+        and worker["status"].upper() == WORKER_ACTIVE
         and worker["ip"] is not None
     ]
 
@@ -5046,7 +5046,7 @@ def create_pid_file():
 def __example_configuration():
     config_example = {
         "scaling": {
-            "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling/",
+            "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling",
             "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
             "scheduler": "slurm",
             "active_mode": "basic",
