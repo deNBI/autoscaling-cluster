@@ -1914,7 +1914,8 @@ def __worker_states():
                 worker_error.append(c_worker["hostname"])
             elif WORKER_FAILED in c_worker["status"].upper():
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
-                sys.exit(1)
+                worker_error.append(c_worker["hostname"])
+
             elif WORKER_ACTIVE == c_worker["status"].upper():
                 worker_active.append(c_worker["hostname"])
             else:
