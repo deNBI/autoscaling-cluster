@@ -702,7 +702,7 @@ def get_dummy_worker(flavors_data):
         "ephemerals": ephemerals,
         "hostname": NODE_DUMMY,
         "ip": "0.0.0.4",
-        "memory": max(max_memory, 512),
+        "memory": max(max_memory, 8192),
         "status": "ACTIVE",
         "gpu": max_gpu,
     }
