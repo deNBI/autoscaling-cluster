@@ -702,7 +702,7 @@ def get_dummy_worker(flavors_data):
         "ephemerals": ephemerals,
         "hostname": NODE_DUMMY,
         "ip": "0.0.0.4",
-        "memory": max_memory,
+        "memory": max(max_memory, 512),
         "status": "ACTIVE",
         "gpu": max_gpu,
     }
@@ -6510,6 +6510,10 @@ if __name__ == "__main__":
             arg = sys.argv[1]
             logger.debug("autoscaling with %s: ", " ".join(sys.argv))
             if len(sys.argv) == 2:
+                if arg in ["-data"]:
+                    logger.debug("scale-up")
+
+                    __cluster_scale_up_test(1)
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
                     logger.debug("scale-up")
                     __cluster_scale_up_test(1)
