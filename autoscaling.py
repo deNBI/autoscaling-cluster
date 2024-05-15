@@ -43,7 +43,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.8.0"
+AUTOSCALING_VERSION = "1.8.3"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -702,7 +702,7 @@ def get_dummy_worker(flavors_data):
         "ephemerals": ephemerals,
         "hostname": NODE_DUMMY,
         "ip": "0.0.0.4",
-        "memory": max_memory,
+        "memory": max(max_memory, 8192),
         "status": "ACTIVE",
         "gpu": max_gpu,
     }
@@ -1800,6 +1800,7 @@ def get_usable_flavors(quiet, cut):
                 "server error - unable to receive flavor data, code %s", res.status_code
             )
             __csv_log_entry("E", 0, "15")
+            return []
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
@@ -1914,7 +1915,8 @@ def __worker_states():
                 worker_error.append(c_worker["hostname"])
             elif WORKER_FAILED in c_worker["status"].upper():
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
-                sys.exit(1)
+                worker_error.append(c_worker["hostname"])
+
             elif WORKER_ACTIVE == c_worker["status"].upper():
                 worker_active.append(c_worker["hostname"])
             else:
@@ -6509,6 +6511,10 @@ if __name__ == "__main__":
             arg = sys.argv[1]
             logger.debug("autoscaling with %s: ", " ".join(sys.argv))
             if len(sys.argv) == 2:
+                if arg in ["-data"]:
+                    logger.debug("scale-up")
+
+                    __cluster_scale_up_test(1)
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
                     logger.debug("scale-up")
                     __cluster_scale_up_test(1)
