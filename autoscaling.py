@@ -1800,6 +1800,7 @@ def get_usable_flavors(quiet, cut):
                 "server error - unable to receive flavor data, code %s", res.status_code
             )
             __csv_log_entry("E", 0, "15")
+            return []
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
