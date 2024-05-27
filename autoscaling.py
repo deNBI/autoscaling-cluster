@@ -1939,7 +1939,6 @@ def check_workers(rescale, worker_count, dummy_worker):
     max_wait_cnt = 0
     service_frequency = int(config_mode["service_frequency"])
 
-
     while not worker_ready:
         (worker_active, worker_unknown, worker_error, worker_down, cluster_workers, cluster_data) = __worker_states()
 
@@ -1948,7 +1947,7 @@ def check_workers(rescale, worker_count, dummy_worker):
             time.sleep(service_frequency * WAIT_CLUSTER_SCALING)
             continue
         if worker_count < 0:
-            return no_error,cluster_data
+            return no_error, cluster_data
         cluster_count_live = len(cluster_workers)
         logger.info("Workers: active %s, error %s, down %s, not ready %s, error list: %s.",
                     len(worker_active), len(worker_error), len(worker_down), len(worker_unknown), worker_error)
@@ -1962,6 +1961,18 @@ def check_workers(rescale, worker_count, dummy_worker):
                          max_wait_cnt, worker_count, cluster_count_live)
             time.sleep(WAIT_CLUSTER_SCALING / 2)
             max_wait_cnt += 1
+
+        elif worker_error and not worker_unknown:
+            logger.error("Scale down error workers: %s", worker_error)
+            cluster_scale_down_specific_self_check(worker_error, rescale, dummy_worker)
+            worker_count -= len(worker_error)
+            no_error = False
+            __csv_log_entry("E", len(worker_error), "12")
+        elif not worker_unknown and not worker_error:
+            logger.info("ALL WORKERS ACTIVE!")
+            if cluster_count_live < worker_count:
+                logger.warning("Higher number of workers expected!")
+            return no_error, cluster_data
         elif elapsed_time > max_time:
             if worker_unknown:
                 logger.error("Workers are stuck: %s", worker_unknown)
@@ -1975,17 +1986,6 @@ def check_workers(rescale, worker_count, dummy_worker):
                 worker_count -= len(worker_down)
                 no_error = False
                 __csv_log_entry("E", len(worker_down), "17")
-        elif worker_error and not worker_unknown:
-            logger.error("Scale down error workers: %s", worker_error)
-            cluster_scale_down_specific_self_check(worker_error, rescale, dummy_worker)
-            worker_count -= len(worker_error)
-            no_error = False
-            __csv_log_entry("E", len(worker_error), "12")
-        elif not worker_unknown and not worker_error:
-            logger.info("ALL WORKERS ACTIVE!")
-            if cluster_count_live < worker_count:
-                logger.warning("Higher number of workers expected!")
-            return no_error, cluster_data
         else:
             logger.info("At least one worker is not 'ACTIVE', wait ... %d seconds", WAIT_CLUSTER_SCALING)
             time.sleep(WAIT_CLUSTER_SCALING)
