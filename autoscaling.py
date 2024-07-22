@@ -43,7 +43,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.8.6"
+AUTOSCALING_VERSION = "1.8.7"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -1498,6 +1498,8 @@ def get_cluster_data():
         else:
             logger.error("server error - unable to receive cluster data")
             __csv_log_entry("E", 0, "16")
+            __sleep_on_server_error()
+
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
@@ -1800,6 +1802,7 @@ def get_usable_flavors(quiet, cut):
                 "server error - unable to receive flavor data, code %s", res.status_code
             )
             __csv_log_entry("E", 0, "15")
+            __sleep_on_server_error()
             return []
 
     except requests.exceptions.HTTPError as e:
@@ -4261,6 +4264,8 @@ def __cloud_api_(portal_url_scale, worker_data):
             return False
     except json.JSONDecodeError:
         logger.debug("Invalid JSON response.")
+        __sleep_on_server_error()
+
         return False
 
 
