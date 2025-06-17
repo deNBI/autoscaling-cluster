@@ -6,7 +6,6 @@ import csv
 import datetime
 import difflib
 import enum
-import filecmp
 import hashlib
 import inspect
 import json
@@ -14,7 +13,7 @@ import logging
 import math
 import os
 import re
-import shutil
+import subprocess
 import signal
 import subprocess
 import sys
@@ -43,7 +42,8 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.8.0"
+AUTOSCALING_VERSION = "1.8.6"
+SCALE_DATA_VERSION = "0.1.0"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -862,7 +862,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
     fv_data = cluster_worker_to_flavor(flavors_data, cluster_worker)
     if fv_data:
         try:
-            credit = float(fv_data["flavor"]["credits_costs_per_hour"])
+            credit = float(fv_data["flavor"].get("credits_costs_per_hour",0))
             return credit
         except KeyError:
             logger.error("KeyError, missing credit in flavor data")
@@ -1099,14 +1099,14 @@ def get_url_info_cluster():
     """
     :return: return portal api info url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-data/"
+    return __get_portal_url_scaling()  + cluster_id + "/scale-data/"
 
 
 def get_url_info_flavors():
     """
     :return: return portal api flavor info url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/usable_flavors/"
+    return __get_portal_url_scaling()  + cluster_id + "/usable_flavors/"
 
 
 def reduce_flavor_memory(mem_gb):
@@ -1476,14 +1476,14 @@ def get_cluster_data():
     try:
         json_data = {
             "password": __get_cluster_password(),
-            "version": AUTOSCALING_VERSION,
+            "version": SCALE_DATA_VERSION,
         }
-        response = requests.get(url=get_url_info_cluster(), json=json_data)
+        response = requests.post(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
             res = response.json()
-            version_check(res["VERSION"])
+            version_check_scale_data(res["VERSION"])
             logger.debug(pformat(res))
             return res
         if response.status_code == HTTP_CODE_UNAUTHORIZED:
@@ -1698,7 +1698,7 @@ def get_usable_flavors(quiet, cut):
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
-                    k["flavor"]["credits_costs_per_hour"],
+                    k["flavor"].get("credits_costs_per_hour",0),
                     k["flavor"]["ram_gib"],
                     k["flavor"]["vcpus"],
                     k["flavor"]["ephemeral_disk"],
@@ -1768,7 +1768,7 @@ def get_usable_flavors(quiet, cut):
                         fd["flavor"]["ram_gib"],
                         fd["flavor"]["vcpus"],
                         fd["flavor"]["ephemeral_disk"],
-                        fd["flavor"]["credits_costs_per_hour"],
+                        fd["flavor"].get("credits_costs_per_hour",0),
                     )
                     logger.debug(
                         " project available %sx,"
@@ -4545,244 +4545,19 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
 
 
 def update_all_yml_files_and_run_playbook(dummy_worker):
-    logger.info("Update all yml files and run playbook")
-    try:
-        host_file_changed = update_all_yml_files(dummy_worker=dummy_worker)
-        if host_file_changed:
-            logger.info("Host File changed. Try Running Playbook")
-            playbook_success = run_ansible_playbook()
-            if not playbook_success:
-                # intercept random and temporal errors
-                logger.error("ansible playbook failed, second retry in 10 seconds")
-                time.sleep(10)
-                playbook_success = run_ansible_playbook()
-                if not playbook_success:
-                    logger.error("ansible playbook failed again")
-            return playbook_success
-        else:
-            logger.info("Host File not changed. Skipping Playbook")
-
-            return True
-    except TypeError:
-        logger.debug("TypeError: api data may be broken.")
-    return False
-
-
-def update_all_yml_files(dummy_worker):
-    logger.info("initiate scaling")
-    data = get_cluster_data()
-    replace_cidr_for_nsf_mount()
-    if data is None:
-        logger.error("get scaling  data: None")
-        return False
-    master_data = data["master"]
-    cluster_data = [
-        worker
-        for worker in data["active_worker"]
-        if worker is not None
-        and worker["status"] == "ACTIVE"
-        and worker["ip"] is not None
-    ]
-
-    valid_upscale_ips = [cl["ip"] for cl in cluster_data]
-    logger.info(f"Current Worker IPs: {valid_upscale_ips}")
-
-    delete_workers_ip_yaml(valid_upscale_ips=valid_upscale_ips)
-
-    if cluster_data:
-        workers_data = create_worker_yml_file(cluster_data=cluster_data)
-
+    # Download the scaling.py script
+    url = "https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        with open("scaling.py", "w") as f:
+            f.write(response.text)
+        
+        # Run the scaling.py script
+        command = ["python3", "scaling.py","-p",__get_cluster_password()]
+        subprocess.run(command)
     else:
-        logger.info("No active worker found!")
-        # keep dummy worker alive
-        workers_data = [dummy_worker]
-        logger.info(pformat(workers_data))
-    workers_file_changed = update_workers_yml(
-        worker_data=workers_data, master_data=master_data, dummy_worker=dummy_worker
-    )
-    host_file_changed = add_ips_to_ansible_hosts(valid_upscale_ips=valid_upscale_ips)
-    return host_file_changed or workers_file_changed
-
-
-def update_workers_yml(master_data, worker_data, dummy_worker):
-    logger.info("Update Worker YAML")
-    logger.info(f"Update Worker Yaml with data: - {worker_data}")
-    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
-
-    instances_mod = {
-        "workers": worker_data,
-        "deletedWorkers": [],
-        "master": master_data,
-    }
-    if dummy_worker is not None:
-        instances_mod["workers"].append(dummy_worker)
-    worker_ips = set()
-    unique_workers = []
-
-    for worker in worker_data:
-        ip = worker["ip"]
-        if ip not in worker_ips:
-            unique_workers.append(worker)
-            worker_ips.add(ip)
-    instances_mod["workers"] = unique_workers
-    logger.debug(f"New Instance YAML:\n  {instances_mod}")
-
-    with open(new_file, "w", encoding="utf8") as in_file:
-        try:
-            yaml.dump(instances_mod, in_file)
-        except yaml.YAMLError as exc:
-            logger.error("YAML Error: %s", exc)
-            sys.exit(1)
-    workers_file_changed = not filecmp.cmp(INSTANCES_YML, new_file)
-
-    if workers_file_changed:
-        logger.info("Workers  file has changed!")
-        # Replace the original file with the modified file
-        os.replace(new_file, INSTANCES_YML)
-    else:
-        # Remove the temporary file
-        logger.info("Workers  file has NOT changed!")
-
-        os.remove(new_file)
-
-    return workers_file_changed
-
-
-def replace_cidr_for_nsf_mount():
-    logger.info("Get CIDR from common configuration")
-    with open(COMMON_CONFIGURATION_YML, "r", encoding="utf8") as stream:
-
-        try:
-            common_configuration_data = yaml.safe_load(stream)
-            cidr = common_configuration_data["CIDR"]
-            logger.info(f"Current CIDR: {cidr}")
-            new_cidr = cidr[:7] + ".0.0/16"
-            if cidr == new_cidr:
-                logger.info("CIDR is already fixed!")
-                return
-            common_configuration_data["CIDR"] = new_cidr
-
-        except yaml.YAMLError as exc:
-            logger.exception(exc)
-            sys.exit(1)
-    with open(COMMON_CONFIGURATION_YML, "w", encoding="utf8") as f:
-        logger.info(f"Replace old CIDR with: {new_cidr}")
-        yaml.dump(common_configuration_data, f)
-
-
-def validate_ip(ip):
-    logger.info("Validate  IP: ", ip)
-    return re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
-
-
-def create_worker_yml_file(cluster_data):
-    workers_data = []
-    for data in cluster_data:
-        yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
-        if not os.path.exists(yaml_file_target):
-            with open(yaml_file_target, "w+", encoding="utf8") as target:
-                try:
-                    yaml.dump(data, target)
-                except yaml.YAMLError as exc:
-                    logger.exception("YAMLError ", exc)
-                    sys.exit(1)
-        else:
-            logger.info(f"Yaml for worker with IP {data['ip']} already exists")
-        workers_data.append(data)
-
-    return workers_data
-
-
-def remove_etc_hosts_entries(ips):
-    hosts_file = "/etc/hosts"
-    backup_file = f"{AUTOSCALING_FOLDER}/hosts.backup"
-    logger.debug(f"Trying to remove  {ips} from /etc/hosts")
-
-    try:
-        # Create a backup of the original hosts file
-        shutil.copy(hosts_file, backup_file)
-
-        # Use sudo to run the command with superuser privileges
-        subprocess.check_call(
-            [
-                "sudo",
-                "python",
-                "-c",
-                f'with open("{hosts_file}", "r") as f:\n  lines = f.readlines()\nnew_lines = [line for line in lines if not any(line.strip().startswith(ip) for ip in {ips})]\nwith open("{hosts_file}", "w") as f:\n  f.writelines(new_lines)',
-            ]
-        )
-
-        logger.debug(f"Removed entries with IPs {', '.join(ips)} from /etc/hosts.")
-    except FileNotFoundError:
-        logger.error(f"The file {hosts_file} was not found.")
-    except Exception as e:
-        # Restore the original hosts file from the backup
-        shutil.copy(backup_file, hosts_file)
-        logger.error(f"An error occurred: {str(e)}")
-    finally:
-        # Remove the backup file
-        if os.path.exists(backup_file):
-            os.remove(backup_file)
-
-
-def delete_workers_ip_yaml(valid_upscale_ips):
-    ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-    files = os.listdir(PLAYBOOK_VARS_DIR)
-    ip_addresses = []
-    remove_ips = []
-    for file in files:
-        match = re.search(ip_pattern, file)
-        if match:
-            ip_addresses.append(match.group())
-    for ip in ip_addresses:
-        if ip not in valid_upscale_ips:
-            remove_ips.append(ip)
-            yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
-            if os.path.isfile(yaml_file):
-                os.remove(yaml_file)
-                logger.debug(f"Deleted YAML  {yaml_file}")
-
-            else:
-                logger.debug(f"Yaml already deleted:  {yaml_file}")
-    if remove_ips:
-        remove_etc_hosts_entries(ips=remove_ips)
-
-
-def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
-    logger.info("Add IPs to ansible_hosts")
-
-    original_file = ANSIBLE_HOSTS_FILE
-    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
-
-    with open(original_file, "r", encoding="utf8") as in_file:
-        lines = in_file.readlines()
-
-    with open(new_file, "w", encoding="utf8") as out_file:
-        found_workers = False
-        for line in lines:
-            if "[workers]" in line:
-                found_workers = True
-                out_file.write(line)
-                for ip in valid_upscale_ips:
-                    ip_line = f"{ip} ansible_connection=ssh ansible_python_interpreter=/usr/bin/python3 ansible_user=ubuntu\n"
-                    out_file.write(ip_line)
-            elif not found_workers:
-                out_file.write(line)
-
-    hosts_file_changed = not filecmp.cmp(original_file, new_file)
-
-    if hosts_file_changed:
-        logger.info("Ansible Host file has changed!")
-        # Replace the original file with the modified file
-        os.replace(new_file, original_file)
-    else:
-        # Remove the temporary file
-        logger.info("Ansible Host file has NOT changed!")
-
-        os.remove(new_file)
-
-    return hosts_file_changed
-
+        print(f"Failed to download script. Status code: {response.status_code}")    
 
 def cluster_scale_down_specific(
     worker_json, worker_num, rescale, jobs_dict, dummy_worker
@@ -5748,6 +5523,20 @@ def __clear_job_name(job_values):
 
     return job_name
 
+def version_check_scale_data(version):
+    """
+    Compare passed version and with own version data and initiate an update in case of mismatch.
+    If the program does not run via systemd, the user must carry out the update himself.
+    :param version: current version from cloud api
+    :return:
+    """
+    if version != SCALE_DATA_VERSION:
+        logger.warning(
+            OUTDATED_SCRIPT_MSG.format(
+                SCRIPT_VERSION=SCALE_DATA_VERSION, LATEST_VERSION=version
+            )
+        )
+        automatic_update(latest_version=version)
 
 def version_check(version):
     """
