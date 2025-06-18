@@ -13,7 +13,6 @@ import logging
 import math
 import os
 import re
-import subprocess
 import signal
 import subprocess
 import sys
@@ -678,7 +677,7 @@ def get_version():
     Print the current autoscaling version.
     :return:
     """
-    logger.debug(f"Version: {AUTOSCALING_VERSION }")
+    logger.debug(f"Version: {AUTOSCALING_VERSION}")
 
 
 def __update_playbook_scheduler_config(set_config):
@@ -806,7 +805,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
     fv_data = cluster_worker_to_flavor(flavors_data, cluster_worker)
     if fv_data:
         try:
-            credit = float(fv_data["flavor"].get("credits_costs_per_hour",0))
+            credit = float(fv_data["flavor"].get("credits_costs_per_hour", 0))
             return credit
         except KeyError:
             logger.error("KeyError, missing credit in flavor data")
@@ -1043,14 +1042,14 @@ def get_url_info_cluster():
     """
     :return: return portal api info url
     """
-    return __get_portal_url_scaling()  + cluster_id + "/scale-data/"
+    return __get_portal_url_scaling() + cluster_id + "/scale-data/"
 
 
 def get_url_info_flavors():
     """
     :return: return portal api flavor info url
     """
-    return __get_portal_url_scaling()  + cluster_id + "/usable_flavors/"
+    return __get_portal_url_scaling() + cluster_id + "/usable_flavors/"
 
 
 def reduce_flavor_memory(mem_gb):
@@ -1471,12 +1470,12 @@ def get_cluster_workers(cluster_data):
     """
     cluster_workers = None
     if cluster_data:
-        cluster_workers =  cluster_data.get("workers",[])
+        cluster_workers = cluster_data.get("workers", [])
         logger.info(cluster_workers)
 
         for w_data in cluster_workers:
             logger.info(f"{w_data} ")
-            flavor_data=w_data["flavor"]
+            flavor_data = w_data["flavor"]
             w_data.update(
                 {
                     "memory_usable": reduce_flavor_memory(
@@ -1484,7 +1483,7 @@ def get_cluster_workers(cluster_data):
                     )
                 }
             )
-    
+
             w_data.update({"temporary_disk": flavor_data["ephemeral"]})
         worker_filter(cluster_workers)
     return cluster_workers
@@ -1635,7 +1634,7 @@ def get_usable_flavors(quiet, cut):
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
-                    k["flavor"].get("credits_costs_per_hour",0),
+                    k["flavor"].get("credits_costs_per_hour", 0),
                     k["flavor"]["ram_gib"],
                     k["flavor"]["vcpus"],
                     k["flavor"]["ephemeral_disk"],
@@ -1705,7 +1704,7 @@ def get_usable_flavors(quiet, cut):
                         fd["flavor"]["ram_gib"],
                         fd["flavor"]["vcpus"],
                         fd["flavor"]["ephemeral_disk"],
-                        fd["flavor"].get("credits_costs_per_hour",0),
+                        fd["flavor"].get("credits_costs_per_hour", 0),
                     )
                     logger.debug(
                         " project available %sx,"
@@ -2663,9 +2662,7 @@ def set_nodes_to_drain(
     if nodes_resume > 0:
         __csv_log_entry("X", nodes_resume, "1")
     if workers_drain:
-        cluster_scale_down_specific_self_check(
-            workers_drain, Rescale.INIT
-        )
+        cluster_scale_down_specific_self_check(workers_drain, Rescale.INIT)
         __csv_log_entry("Y", len(workers_drain), "0")
     return worker_data_changed
 
@@ -3885,9 +3882,7 @@ def __scale_down_error_workers(worker_err_list):
             config_mode["scale_delay"],
         )
         time.sleep(WAIT_CLUSTER_SCALING)
-        cluster_scale_down_specific_self_check(
-            worker_err_list, Rescale.CHECK
-        )
+        cluster_scale_down_specific_self_check(worker_err_list, Rescale.CHECK)
         __csv_log_entry("E", "0", "0")
 
 
@@ -4363,9 +4358,7 @@ def cluster_scale_down_specific_hostnames(hostnames, rescale):
     """
     worker_hostnames = "[" + hostnames + "]"
     logger.debug(hostnames)
-    return cluster_scale_down_specific_hostnames_list(
-        worker_hostnames, rescale
-    )
+    return cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale)
 
 
 def cluster_scale_down_specific_self_check(worker_hostnames, rescale):
@@ -4420,9 +4413,7 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale):
         rescale,
     )
 
-    return cluster_scale_down_specific_hostnames_list(
-        scale_down_list, rescale
-    )
+    return cluster_scale_down_specific_hostnames_list(scale_down_list, rescale)
 
 
 def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
@@ -4466,21 +4457,20 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
 def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
     response = requests.get(SCALING_SCRIPT_URL)
-    
+
     if response.status_code == 200:
         logger.info("Starting scaling script...")
         with open("scaling.py", "w") as f:
             f.write(response.text)
-        
+
         # Run the scaling.py script
-        command = ["python3", "scaling.py","-p",__get_cluster_password()]
+        command = ["python3", "scaling.py", "-p", __get_cluster_password()]
         subprocess.run(command)
     else:
-        logger.error(f"Failed to download script. Status code: {response.status_code}")    
+        logger.error(f"Failed to download script. Status code: {response.status_code}")
 
-def cluster_scale_down_specific(
-    worker_json, worker_num, rescale, jobs_dict
-):
+
+def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict):
     """
     scale down a specific number of workers, downscale list is self generated
     :param jobs_dict: jobs dictionary with pending jobs
@@ -4517,7 +4507,9 @@ def __cluster_shut_down():
         if worker_list:
             logger.info("scale down %s", worker_list)
             time.sleep(WAIT_CLUSTER_SCALING)
-            return cluster_scale_down_specific_hostnames_list(worker_list, Rescale.CHECK)
+            return cluster_scale_down_specific_hostnames_list(
+                worker_list, Rescale.CHECK
+            )
     return False
 
 
@@ -4533,9 +4525,7 @@ def rescale_cluster(worker_count):
         logger.debug("initiate rescale, wait %s seconds", WAIT_CLUSTER_SCALING)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-    no_error_scale, cluster_data = check_workers(
-        Rescale.NONE, worker_count
-    )
+    no_error_scale, cluster_data = check_workers(Rescale.NONE, worker_count)
     rescale_success = rescale_init()
     if not rescale_success:
         worker_json, _, _, _, _ = receive_node_data_db(False)
@@ -4543,9 +4533,7 @@ def rescale_cluster(worker_count):
             get_cluster_workers_from_api(), worker_json
         )
         if worker_err_list:
-            cluster_scale_down_specific_self_check(
-                worker_err_list, Rescale.NONE
-            )
+            cluster_scale_down_specific_self_check(worker_err_list, Rescale.NONE)
             __csv_log_entry("E", "0", "20")
             logger.error("playbook failed, possible server problem, wait 10 minutes")
             time.sleep(WAIT_CLUSTER_SCALING * 60)
@@ -4933,7 +4921,9 @@ def __cluster_scale_down_choice_batch():
         logger.info("generated scale-down list: %s", scale_down_list)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-        return cluster_scale_down_specific_hostnames_list(scale_down_list, Rescale.CHECK)
+        return cluster_scale_down_specific_hostnames_list(
+            scale_down_list, Rescale.CHECK
+        )
     return False
 
 
@@ -4970,7 +4960,9 @@ def __cluster_scale_down_choice():
         logger.info("generated scale-down list: %s", scale_down_list)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-        return cluster_scale_down_specific_hostnames_list(scale_down_list, Rescale.CHECK)
+        return cluster_scale_down_specific_hostnames_list(
+            scale_down_list, Rescale.CHECK
+        )
     logger.debug("worker unavailable!")
     return False
 
@@ -5425,6 +5417,7 @@ def __clear_job_name(job_values):
 
     return job_name
 
+
 def version_check_scale_data(version):
     """
     Compare passed version and with own version data and initiate an update in case of mismatch.
@@ -5439,6 +5432,7 @@ def version_check_scale_data(version):
             )
         )
         automatic_update(latest_version=version)
+
 
 def version_check(version):
     """
@@ -5693,9 +5687,7 @@ def function_test():
     logger.info("Flavor data recieved")
 
     logger.debug("test scale up %s", smallest_flavor)
-    if not __cluster_scale_up_specific(
-        smallest_flavor["flavor"]["name"], 1, True
-    ):
+    if not __cluster_scale_up_specific(smallest_flavor["flavor"]["name"], 1, True):
         logger.error("unable to scale up")
         result_ = False
         return result_
@@ -6231,9 +6223,7 @@ if __name__ == "__main__":
                     )
                     time.sleep(WAIT_CLUSTER_SCALING)
                     worker_j, _, _, _, _ = receive_node_data_db(False)
-                    __verify_cluster_workers(
-                        get_cluster_workers_from_api(), worker_j
-                    )
+                    __verify_cluster_workers(get_cluster_workers_from_api(), worker_j)
                 elif arg in ["-pb", "--pb", "-playbook", "--playbook"]:
                     logger.debug("run_ansible_playbook")
                     run_ansible_playbook()
@@ -6280,9 +6270,7 @@ if __name__ == "__main__":
                 if arg in ["-sus", "--sus", "-scaleupspecific", "--scaleupspecific"]:
                     logger.debug("scale-up")
                     if sys.argv[3].isnumeric():
-                        __cluster_scale_up_specific(
-                            sys.argv[2], int(sys.argv[3]), True
-                        )
+                        __cluster_scale_up_specific(sys.argv[2], int(sys.argv[3]), True)
         else:
             logger.debug("\npass a mode via parameter, use -h for help")
             rescale_cluster(-1)
