@@ -831,7 +831,7 @@ def cluster_credit_usage():
     worker_credit_data = {}
     if cluster_workers is not None:
         for c_worker in cluster_workers:
-            if c_worker["status"] == WORKER_ACTIVE:
+            if c_worker["status"].upper() == WORKER_ACTIVE:
                 credit_sum += cluster_worker_to_credit(flavors_data, c_worker)
                 if c_worker["flavor"] in worker_credit_data:
                     worker_credit_data[c_worker["flavor"]]["cnt"] += 1
@@ -1383,7 +1383,7 @@ def node_filter(node_dict):
         logger.debug("ignore_nodes: %s, node_dict %s", ignore_workers, node_dict.keys())
 
 
-def worker_filter(cluster_workers):
+def f(cluster_workers):
     ignore_workers = config_data["ignore_workers"]
 
     if ignore_workers:
@@ -1467,8 +1467,6 @@ def get_cluster_data():
     """
     Receive worker information from portal.
     request example:
-    requests:  {'active_worker': [{'ip': '192.168.1.17', 'cores': 4, 'hostname': 'bibigrid-worker-1-1-3zytxfzrsrcl8ku',
-     'memory': 4096, 'status': 'ACTIVE', 'ephemerals': []}, {'ip': ...}, 'VERSION': '0.2.0'}
     :return:
         cluster data dictionary
         if api error: None
@@ -1516,6 +1514,19 @@ def get_cluster_data():
     return None
 
 
+def worker_filter(cluster_workers):
+    ignore_workers = config_data["ignore_workers"]
+
+    if ignore_workers:
+        index = 0
+        for key in cluster_workers:
+            if key["hostname"] in ignore_workers:
+                cluster_workers.pop(index)
+                logger.debug("remove %s", key)
+            index += 1
+        logger.warning("ignore worker: %s", ignore_workers)
+
+
 def get_cluster_workers(cluster_data):
     """
     Modify cluster worker data.
@@ -1524,31 +1535,21 @@ def get_cluster_workers(cluster_data):
     """
     cluster_workers = None
     if cluster_data:
-        cluster_workers = [
-            data for data in cluster_data["active_worker"] if data is not None
-        ]
+        cluster_workers =  cluster_data.get("workers",[])
+        logger.info(cluster_workers)
 
-        for i, w_data in enumerate(cluster_workers):
-            cluster_workers[i].update(
+        for w_data in cluster_workers:
+            logger.info(f"{w_data} ")
+            flavor_data=w_data["flavor"]
+            w_data.update(
                 {
                     "memory_usable": reduce_flavor_memory(
-                        convert_mib_to_gb(w_data["memory"])
+                        convert_mib_to_gb(flavor_data["ram"])
                     )
                 }
             )
-            if (
-                "ephemerals" in w_data
-                and w_data["ephemerals"]
-                and "size" in w_data["ephemerals"][0]
-            ):
-                cluster_workers[i].update(
-                    {"temporary_disk": w_data["ephemerals"][0]["size"]}
-                )
-            elif "ephemeral_disk" in w_data:
-                cluster_workers[i].update({"temporary_disk": w_data["ephemeral_disk"]})
-            else:
-                cluster_workers[i].update({"temporary_disk": 0})
-                logger.error("ephemeral missing in cluster worker data")
+    
+            w_data.update({"temporary_disk": flavor_data["ephemeral"]})
         worker_filter(cluster_workers)
     return cluster_workers
 
@@ -1915,7 +1916,7 @@ def __worker_states():
             elif WORKER_FAILED in c_worker["status"]:
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
                 sys.exit(1)
-            elif WORKER_ACTIVE == c_worker["status"]:
+            elif WORKER_ACTIVE == c_worker["status"].upper():
                 worker_active.append(c_worker["hostname"])
             else:
                 worker_unknown.append(c_worker["hostname"])
