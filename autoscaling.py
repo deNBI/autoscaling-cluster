@@ -6,7 +6,6 @@ import csv
 import datetime
 import difflib
 import enum
-import filecmp
 import hashlib
 import inspect
 import json
@@ -14,7 +13,6 @@ import logging
 import math
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -43,10 +41,12 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "1.8.7"
+AUTOSCALING_VERSION = "1.8.6"
+SCALE_DATA_VERSION = "0.1.0"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
+SCALING_SCRIPT_URL = "https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py"
 
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
@@ -85,6 +85,7 @@ NODE_DUMMY_REQ = True
 WORKER_SCHEDULING = "SCHEDULING"
 WORKER_PLANNED = "PLANNED"
 WORKER_ERROR = "ERROR"
+WORKER_CREATION_FAILED = "CREATION_FAILED"
 WORKER_FAILED = "FAILED"
 WORKER_PORT_CLOSED = "PORT_CLOSED"
 WORKER_ACTIVE = "ACTIVE"
@@ -663,70 +664,15 @@ def run_ansible_playbook():
     return result_
 
 
-def get_dummy_worker(flavors_data):
-    """
-    Generate dummy worker entry from the highest flavor from available flavor data.
-    The highest flavor shut be on top on index 0.
-
-    Example:
-        {'cores': 28, 'ephemeral_disk': 4000, 'ephemerals': [],
-        'hostname': 'bibigrid-worker-autoscaling_dummy', 'ip': '0.0.0.4',
-        'memory': 512000, 'status': 'ACTIVE'}
-    :param flavors_data: available flavors
-    :return: dummy worker data as json
-    """
-    ephemeral_disk = 0
-    max_gpu = 0
-    max_memory = 0
-    max_cpu = 0
-
-    if flavors_data:
-        # over all flavors - include gpu
-        for flavor_tmp in flavors_data:
-            ephemeral_disk = max(
-                ephemeral_disk,
-                convert_gb_to_mib(int(flavor_tmp["flavor"]["ephemeral_disk"])),
-            )
-            max_memory = max(
-                max_memory, convert_gb_to_mib(flavor_tmp["flavor"]["ram_gib"])
-            )
-            max_cpu = max(max_cpu, flavor_tmp["flavor"]["vcpus"])
-            max_gpu = max(max_gpu, int(flavor_tmp["flavor"]["gpu"]))
-    else:
-        logger.error("no flavor available")
-
-    ephemerals = [{"size": ephemeral_disk, "device": "/dev/vdb", "mountpoint": "/mnt"}]
-    dummy_worker = {
-        "cores": max_cpu,
-        "ephemeral_disk": ephemeral_disk,
-        "ephemerals": ephemerals,
-        "hostname": NODE_DUMMY,
-        "ip": "0.0.0.4",
-        "memory": max(max_memory, 8192),
-        "status": "ACTIVE",
-        "gpu": max_gpu,
-    }
-    logger.debug("dummy worker data: %s", dummy_worker)
-    return dummy_worker
-
-
-def rescale_init(cluster_data, dummy_worker):
+def rescale_init():
     """
     Combine rescaling steps
-        - update dummy_worker worker, if required
         - start scale function to generate and update the ansible playbook
         - run the ansible playbook
-    :param cluster_data: cluster data from api
-    :param dummy_worker: dummy worker data
-    :return: boolean, success
+    :return: boolean, success    :param cluster_data: cluster data from api
     """
 
-    if NODE_DUMMY_REQ and not dummy_worker:
-        flavor_data = get_usable_flavors(True, False)
-        dummy_worker = get_dummy_worker(flavor_data)
-
-    logger.debug("calculated dummy_worker: %s", pformat(dummy_worker))
-    return update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
+    return update_all_yml_files_and_run_playbook()
 
 
 def get_version():
@@ -734,7 +680,7 @@ def get_version():
     Print the current autoscaling version.
     :return:
     """
-    logger.debug("Version: ", AUTOSCALING_VERSION)
+    logger.debug(f"Version: {AUTOSCALING_VERSION}")
 
 
 def __update_playbook_scheduler_config(set_config):
@@ -862,7 +808,7 @@ def cluster_worker_to_credit(flavors_data, cluster_worker):
     fv_data = cluster_worker_to_flavor(flavors_data, cluster_worker)
     if fv_data:
         try:
-            credit = float(fv_data["flavor"]["credits_cost_per_hour"])
+            credit = float(fv_data["flavor"].get("credits_costs_per_hour", 0))
             return credit
         except KeyError:
             logger.error("KeyError, missing credit in flavor data")
@@ -888,7 +834,7 @@ def cluster_worker_to_flavor(flavors_data, cluster_worker):
 
     if cluster_worker:
         for fv_data in flavors_data:
-            if cluster_worker["flavor"] == fv_data["flavor"]["name"]:
+            if cluster_worker["flavor"]["name"] == fv_data["flavor"]["name"]:
                 return fv_data
         logger.error("flavor not found for worker %s", cluster_worker["flavor"])
     return None
@@ -1078,7 +1024,8 @@ def get_wrong_password_msg():
 
 
 def __get_portal_url_scaling():
-    return config_data["portal_scaling_link"]
+    scaling_link = config_data["portal_scaling_link"]
+    return scaling_link if scaling_link.endswith("/") else scaling_link + "/"
 
 
 def get_url_scale_up():
@@ -1099,14 +1046,14 @@ def get_url_info_cluster():
     """
     :return: return portal api info url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-data/"
+    return __get_portal_url_scaling() + cluster_id + "/scale-data/"
 
 
 def get_url_info_flavors():
     """
     :return: return portal api flavor info url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/usable_flavors/"
+    return __get_portal_url_scaling() + cluster_id + "/usable_flavors/"
 
 
 def reduce_flavor_memory(mem_gb):
@@ -1290,7 +1237,6 @@ def __receive_node_stats(node_dict, quiet):
             sys.exit(1)
         else:
             logger.error("%s not found, but dummy mode is active", NODE_DUMMY)
-
         for key, value in list(node_dict.items()):
             if "temporary_disk" in value:
                 tmp_disk = value["temporary_disk"]
@@ -1383,7 +1329,7 @@ def node_filter(node_dict):
         logger.debug("ignore_nodes: %s, node_dict %s", ignore_workers, node_dict.keys())
 
 
-def worker_filter(cluster_workers):
+def f(cluster_workers):
     ignore_workers = config_data["ignore_workers"]
 
     if ignore_workers:
@@ -1467,8 +1413,6 @@ def get_cluster_data():
     """
     Receive worker information from portal.
     request example:
-    requests:  {'active_worker': [{'ip': '192.168.1.17', 'cores': 4, 'hostname': 'bibigrid-worker-1-1-3zytxfzrsrcl8ku',
-     'memory': 4096, 'status': 'ACTIVE', 'ephemerals': []}, {'ip': ...}, 'VERSION': '0.2.0'}
     :return:
         cluster data dictionary
         if api error: None
@@ -1476,14 +1420,14 @@ def get_cluster_data():
     try:
         json_data = {
             "password": __get_cluster_password(),
-            "version": AUTOSCALING_VERSION,
+            "version": SCALE_DATA_VERSION,
         }
         response = requests.post(url=get_url_info_cluster(), json=json_data)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
             res = response.json()
-            version_check(res["VERSION"])
+            version_check_scale_data(res["VERSION"])
             logger.debug(pformat(res))
             return res
         if response.status_code == HTTP_CODE_UNAUTHORIZED:
@@ -1518,6 +1462,19 @@ def get_cluster_data():
     return None
 
 
+def worker_filter(cluster_workers):
+    ignore_workers = config_data["ignore_workers"]
+
+    if ignore_workers:
+        index = 0
+        for key in cluster_workers:
+            if key["hostname"] in ignore_workers:
+                cluster_workers.pop(index)
+                logger.debug("remove %s", key)
+            index += 1
+        logger.warning("ignore worker: %s", ignore_workers)
+
+
 def get_cluster_workers(cluster_data):
     """
     Modify cluster worker data.
@@ -1526,31 +1483,21 @@ def get_cluster_workers(cluster_data):
     """
     cluster_workers = None
     if cluster_data:
-        cluster_workers = [
-            data for data in cluster_data["active_worker"] if data is not None
-        ]
+        cluster_workers = cluster_data.get("workers", [])
+        logger.info(cluster_workers)
 
-        for i, w_data in enumerate(cluster_workers):
-            cluster_workers[i].update(
+        for w_data in cluster_workers:
+            logger.info(f"{w_data} ")
+            flavor_data = w_data["flavor"]
+            w_data.update(
                 {
                     "memory_usable": reduce_flavor_memory(
-                        convert_mib_to_gb(w_data["memory"])
+                        convert_mib_to_gb(flavor_data["ram"])
                     )
                 }
             )
-            if (
-                "ephemerals" in w_data
-                and w_data["ephemerals"]
-                and "size" in w_data["ephemerals"][0]
-            ):
-                cluster_workers[i].update(
-                    {"temporary_disk": w_data["ephemerals"][0]["size"]}
-                )
-            elif "ephemeral_disk" in w_data:
-                cluster_workers[i].update({"temporary_disk": w_data["ephemeral_disk"]})
-            else:
-                cluster_workers[i].update({"temporary_disk": 0})
-                logger.error("ephemeral missing in cluster worker data")
+
+            w_data.update({"temporary_disk": flavor_data["ephemeral"]})
         worker_filter(cluster_workers)
     return cluster_workers
 
@@ -1700,7 +1647,7 @@ def get_usable_flavors(quiet, cut):
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
-                    k["flavor"]["credits_cost_per_hour"],
+                    k["flavor"].get("credits_costs_per_hour", 0),
                     k["flavor"]["ram_gib"],
                     k["flavor"]["vcpus"],
                     k["flavor"]["ephemeral_disk"],
@@ -1770,7 +1717,7 @@ def get_usable_flavors(quiet, cut):
                         fd["flavor"]["ram_gib"],
                         fd["flavor"]["vcpus"],
                         fd["flavor"]["ephemeral_disk"],
-                        fd["flavor"]["credits_cost_per_hour"],
+                        fd["flavor"].get("credits_costs_per_hour", 0),
                     )
                     logger.debug(
                         " project available %sx,"
@@ -1916,10 +1863,12 @@ def __worker_states():
             elif WORKER_ERROR == c_worker["status"].upper():
                 logger.error("ERROR %s", c_worker["hostname"])
                 worker_error.append(c_worker["hostname"])
+            elif WORKER_CREATION_FAILED == c_worker["status"].upper():
+                logger.error("CREATION FAILED %s", c_worker["hostname"])
+                worker_error.append(c_worker["hostname"])
             elif WORKER_FAILED in c_worker["status"].upper():
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
-                worker_error.append(c_worker["hostname"])
-
+                sys.exit(1)
             elif WORKER_ACTIVE == c_worker["status"].upper():
                 worker_active.append(c_worker["hostname"])
             else:
@@ -1934,7 +1883,15 @@ def __worker_states():
     )
 
 
-def check_workers(rescale, worker_count, dummy_worker):
+def check_workers(rescale, worker_count):
+    """
+    Fetch cluster data from server and check
+        - all workers are active
+        - remove broken workers
+    :param rescale: rescale decision
+    :param worker_count: expected number of workers
+    :return: no_error, cluster_data
+    """
     worker_ready = False
     start_time = time.time()
     max_time = 1200
@@ -1984,13 +1941,26 @@ def check_workers(rescale, worker_count, dummy_worker):
             )
             time.sleep(WAIT_CLUSTER_SCALING / 2)
             max_wait_cnt += 1
-
+        elif elapsed_time > max_time and worker_unknown:
+            logger.error("workers are stuck: %s", worker_unknown)
+            cluster_scale_down_specific_self_check(
+                worker_unknown + worker_error, rescale
+            )
+            worker_count -= len(worker_unknown + worker_error)
+            no_error = False
+            __csv_log_entry("E", len(worker_unknown + worker_error), "11")
         elif worker_error and not worker_unknown:
-            logger.error("Scale down error workers: %s", worker_error)
-            cluster_scale_down_specific_self_check(worker_error, rescale, dummy_worker)
+            logger.error("scale down error workers: %s", worker_error)
+            cluster_scale_down_specific_self_check(worker_error, rescale)
             worker_count -= len(worker_error)
             no_error = False
             __csv_log_entry("E", len(worker_error), "12")
+        elif elapsed_time > max_time and worker_down:
+            logger.error("scale down workers are down: %s", worker_down)
+            cluster_scale_down_specific_self_check(worker_down, rescale)
+            worker_count -= len(worker_down)
+            no_error = False
+            __csv_log_entry("E", len(worker_down), "17")
         elif not worker_unknown and not worker_error:
             logger.info("ALL WORKERS ACTIVE!")
             if cluster_count_live < worker_count:
@@ -2591,7 +2561,6 @@ def set_nodes_to_drain(
     flavor_data,
     cluster_worker,
     jobs_running_dict,
-    dummy_worker,
 ):
     """
     Calculate the largest flavor/worker for pending jobs.
@@ -2604,7 +2573,6 @@ def set_nodes_to_drain(
     :param flavor_data: current flavor data
     :param cluster_worker: worker data from cluster api
     :param jobs_running_dict: job dictionary with running jobs
-    :param dummy_worker: dummy worker data
     :return: changed worker data
     """
     worker_data_changed = False
@@ -2735,9 +2703,7 @@ def set_nodes_to_drain(
     if nodes_resume > 0:
         __csv_log_entry("X", nodes_resume, "1")
     if workers_drain:
-        cluster_scale_down_specific_self_check(
-            workers_drain, Rescale.INIT, dummy_worker
-        )
+        cluster_scale_down_specific_self_check(workers_drain, Rescale.INIT)
         __csv_log_entry("Y", len(workers_drain), "0")
     return worker_data_changed
 
@@ -3861,7 +3827,7 @@ def __calc_job_time_norm(job_time_sum, job_num):
 
 
 def __multiscale_scale_down(
-    scale_state, worker_json, worker_count, worker_free, jobs_pending_dict, dummy_worker
+    scale_state, worker_json, worker_count, worker_free, jobs_pending_dict
 ):
     """
     Scale down part from multiscale.
@@ -3870,7 +3836,6 @@ def __multiscale_scale_down(
     :param worker_count: number of current workers
     :param worker_free: number of unused workers
     :param jobs_pending_dict: pending jobs as dictionary
-    :param dummy_worker: dummy worker data
     :return: new scale state
     """
     worker_down_cnt = __calculate_scale_down_value(
@@ -3883,7 +3848,7 @@ def __multiscale_scale_down(
         time.sleep(int(config_mode["scale_delay"]))
     elif scale_state == ScaleState.DOWN:
         cluster_scale_down_specific(
-            worker_json, worker_down_cnt, Rescale.CHECK, jobs_pending_dict, dummy_worker
+            worker_json, worker_down_cnt, Rescale.CHECK, jobs_pending_dict
         )
         scale_state = ScaleState.DONE
     else:
@@ -3903,7 +3868,7 @@ def __check_cluster_node_workers(cluster_workers, worker_json):
 
     if worker_missing:
         logger.debug("1. check, missing worker list: %s", worker_missing)
-        rescale_init(cluster_workers, None)
+        rescale_init()
         worker_json, _, _, _, _ = receive_node_data_live()
         worker_missing = __compare_custer_node_workers(cluster_workers, worker_json)
         logger.debug("2. check, missing worker list: %s", worker_missing)
@@ -3943,12 +3908,11 @@ def __compare_custer_node_workers(cluster_workers, worker_json):
     return worker_missing
 
 
-def __scale_down_error_workers(worker_err_list, dummy_worker):
+def __scale_down_error_workers(worker_err_list):
     """
     Scale down workers by a given error worker list and print error message.
     Skip, if the error worker list is empty.
     :param worker_err_list: workers in state error as list
-    :param dummy_worker: dummy worker data
     :return:
     """
     if worker_err_list:
@@ -3959,20 +3923,17 @@ def __scale_down_error_workers(worker_err_list, dummy_worker):
             config_mode["scale_delay"],
         )
         time.sleep(WAIT_CLUSTER_SCALING)
-        cluster_scale_down_specific_self_check(
-            worker_err_list, Rescale.CHECK, dummy_worker
-        )
+        cluster_scale_down_specific_self_check(worker_err_list, Rescale.CHECK)
         __csv_log_entry("E", "0", "0")
 
 
-def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
+def __verify_cluster_workers(cluster_workers, worker_json):
     """
     Check via cluster api if workers are broken and compare workers from first and second call.
         - delete workers if states on cluster are stuck at error, down, planned or drain
         - server side (check worker)
     :param cluster_workers: cluster data from first call
     :param worker_json: worker information as json dictionary object
-    :param dummy_worker: dummy worker data
     :return: cluster_worker_no_change, cluster_worker_complete
     """
     if cluster_workers is None:
@@ -3981,20 +3942,20 @@ def __verify_cluster_workers(cluster_workers, worker_json, dummy_worker):
         logger.debug("cluster worker data is empty")
     worker_missing = __check_cluster_node_workers(cluster_workers, worker_json)
 
-    error_states = [
-        WORKER_ERROR,
-        WORKER_PLANNED,
-    ]
+    error_states = [WORKER_ERROR, WORKER_PLANNED, WORKER_CREATION_FAILED]
     worker_cluster_err_list = []
     for clt in cluster_workers:
-        logger.debug("cluster worker: %s, state %s", clt["hostname"], clt["status"])
-        if any(ele in clt["status"].upper() for ele in error_states):
-            worker_cluster_err_list.append(clt["hostname"])
+        if clt["hostname"] != NODE_DUMMY:
+            logger.debug(
+                "cluster worker: %s, state %s", clt["hostname"], clt["status"].upper()
+            )
+            if any(ele in clt["status"].upper() for ele in error_states):
+                worker_cluster_err_list.append(clt["hostname"])
     logger.debug("cluster workers, error list: %s", worker_cluster_err_list)
     logger.debug("cluster workers, missing list %s", worker_missing)
     error_worker_list = worker_missing + worker_cluster_err_list
     if error_worker_list:
-        __scale_down_error_workers(error_worker_list, dummy_worker)
+        __scale_down_error_workers(error_worker_list)
     return cluster_workers
 
 
@@ -4044,15 +4005,14 @@ def __worker_same_states(worker_json, worker_copy):
     return worker_copy_tmp
 
 
-def multiscale(flavor_data, dummy_worker):
+def multiscale(flavor_data):
     """
     Make a scaling decision in advance by scaling state classification.
     :param flavor_data: current flavor data
-    :param dummy_worker: dummy worker data
     :return:
     """
     state = ScaleState.DELAY
-    update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
+    update_all_yml_files_and_run_playbook()
 
     # create worker copy, only use delete workers after a delay, give scheduler and network time to activate
     worker_copy = None
@@ -4081,13 +4041,13 @@ def multiscale(flavor_data, dummy_worker):
         # cluster configuration may be broken
         if worker_json is None:
             logger.warning("unable to receive worker data, reconfigure cluster")
-            rescale_cluster(0, dummy_worker)
+            rescale_cluster(0)
             return
 
         if state == ScaleState.DELAY:
             # check for broken workers at cluster first
             cluster_workers = __verify_cluster_workers(
-                get_cluster_workers(cluster_data), worker_json, dummy_worker
+                get_cluster_workers(cluster_data), worker_json
             )
             if cluster_workers is None:
                 state = ScaleState.SKIP
@@ -4100,7 +4060,6 @@ def multiscale(flavor_data, dummy_worker):
                     flavor_data,
                     cluster_workers,
                     jobs_running_dict,
-                    dummy_worker,
                 ):
                     # update data after drain + scale down
                     cluster_data = get_cluster_data()
@@ -4132,7 +4091,6 @@ def multiscale(flavor_data, dummy_worker):
                 worker_count,
                 worker_free,
                 jobs_pending_dict,
-                dummy_worker,
             )
         elif (
             worker_count > DOWNSCALE_LIMIT
@@ -4147,7 +4105,6 @@ def multiscale(flavor_data, dummy_worker):
                 worker_count,
                 worker_free,
                 jobs_pending_dict,
-                dummy_worker,
             )
         # SCALE DOWN and UP
         elif worker_free > 0 and jobs_pending >= 1 and not state == ScaleState.FORCE_UP:
@@ -4164,7 +4121,6 @@ def multiscale(flavor_data, dummy_worker):
                     scale_down_value,
                     Rescale.NONE,
                     jobs_pending_dict,
-                    dummy_worker,
                 )
                 if not changed_data:
                     scale_down_value = 0
@@ -4206,7 +4162,6 @@ def multiscale(flavor_data, dummy_worker):
                     state,
                     flavor_data,
                     cluster_workers,
-                    dummy_worker,
                 )
                 state = ScaleState.DONE
             elif state == ScaleState.FORCE_UP:
@@ -4221,7 +4176,6 @@ def multiscale(flavor_data, dummy_worker):
                         state,
                         flavor_data,
                         cluster_workers,
-                        dummy_worker,
                     )
                     and changed_data
                 ):
@@ -4229,7 +4183,7 @@ def multiscale(flavor_data, dummy_worker):
                     # cluster data changed by scale down, but no scale up was possible
 
                     # rescale once from scale-down (combined rescale DOWN_UP)
-                    rescale_cluster(worker_count - scale_down_value, dummy_worker)
+                    rescale_cluster(worker_count - scale_down_value)
 
                 state = ScaleState.DONE
             else:
@@ -4331,7 +4285,6 @@ def cluster_scale_up(
     state,
     flavor_data,
     cluster_worker,
-    dummy_worker,
 ):
     """
     scale up and rescale cluster with data generation
@@ -4344,7 +4297,6 @@ def cluster_scale_up(
     :param worker_count: number of total workers
     :param jobs_pending_dict: jobs as json dictionary object
     :param cluster_worker: worker data from cluster api
-    :param dummy_worker: dummy worker data
     :return: boolean, success
     """
 
@@ -4423,7 +4375,7 @@ def cluster_scale_up(
     time_now = __get_time()
 
     if upscale_cnt > 0:
-        rescale_cluster(worker_count, dummy_worker)
+        rescale_cluster(worker_count)
         rescale_time = __get_time() - time_now
         if state == ScaleState.FORCE_UP:
             __csv_log_entry("U", upscale_cnt, "8")
@@ -4440,29 +4392,25 @@ def cluster_scale_up(
     return False
 
 
-def cluster_scale_down_specific_hostnames(hostnames, rescale, dummy_worker):
+def cluster_scale_down_specific_hostnames(hostnames, rescale):
     """
     scale down with specific hostnames
     :param hostnames: hostname list as string "worker1,worker2,worker..."
     :param rescale: if rescale (with worker check) is desired
-    :param dummy_worker: dummy worker data
     :return:
     """
     worker_hostnames = "[" + hostnames + "]"
     logger.debug(hostnames)
-    return cluster_scale_down_specific_hostnames_list(
-        worker_hostnames, rescale, dummy_worker
-    )
+    return cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale)
 
 
-def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_worker):
+def cluster_scale_down_specific_self_check(worker_hostnames, rescale):
     """
     scale down with specific hostnames
     include a final worker check with most up-to-date worker data before scale down
         exclude allocated and mix worker
     :param worker_hostnames: hostname list
     :param rescale: if rescale (with worker check) is desired
-    :param dummy_worker: dummy worker data
     :return: success
     """
     if not worker_hostnames:
@@ -4508,17 +4456,14 @@ def cluster_scale_down_specific_self_check(worker_hostnames, rescale, dummy_work
         rescale,
     )
 
-    return cluster_scale_down_specific_hostnames_list(
-        scale_down_list, rescale, dummy_worker
-    )
+    return cluster_scale_down_specific_hostnames_list(scale_down_list, rescale)
 
 
-def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_worker):
+def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
     """
     scale down with specific hostnames
     :param worker_hostnames: hostname list
     :param rescale: if rescale (with worker check) is desired
-    :param dummy_worker: dummy worker data
     :return: success
     """
     logger.debug(
@@ -4540,272 +4485,45 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale, dummy_
     result_ = True
     if cloud_api(get_url_scale_down_specific(), data) is not None:
         if rescale == Rescale.CHECK:
-            result_ = rescale_cluster(0, dummy_worker)
+            result_ = rescale_cluster(0)
         elif rescale == Rescale.INIT:
-            result_ = rescale_init(None, dummy_worker)
+            result_ = rescale_init()
         __csv_log_entry("D", len(worker_hostnames), "3")
     else:
         __csv_log_entry("D", len(worker_hostnames), "4")
         result_ = False
-    update_all_yml_files_and_run_playbook(dummy_worker=dummy_worker)
+    update_all_yml_files_and_run_playbook()
 
     return result_
 
 
-def update_all_yml_files_and_run_playbook(dummy_worker):
-    logger.info("Update all yml files and run playbook")
-    try:
-        host_file_changed = update_all_yml_files(dummy_worker=dummy_worker)
-        if host_file_changed:
-            logger.info("Host File changed. Try Running Playbook")
-            playbook_success = run_ansible_playbook()
-            if not playbook_success:
-                # intercept random and temporal errors
-                logger.error("ansible playbook failed, second retry in 10 seconds")
-                time.sleep(10)
-                playbook_success = run_ansible_playbook()
-                if not playbook_success:
-                    logger.error("ansible playbook failed again")
-            return playbook_success
-        else:
-            logger.info("Host File not changed. Skipping Playbook")
+def update_all_yml_files_and_run_playbook():
+    # Download the scaling.py script
+    response = requests.get(SCALING_SCRIPT_URL)
 
-            return True
-    except TypeError:
-        logger.debug("TypeError: api data may be broken.")
-    return False
+    if response.status_code == 200:
+        logger.info("Starting scaling script...")
+        with open("scaling.py", "w") as f:
+            f.write(response.text)
 
-
-def update_all_yml_files(dummy_worker):
-    logger.info("initiate scaling")
-    data = get_cluster_data()
-    replace_cidr_for_nsf_mount()
-    if data is None:
-        logger.error("get scaling  data: None")
-        return False
-    master_data = data["master"]
-    cluster_data = [
-        worker
-        for worker in data["active_worker"]
-        if worker is not None
-        and worker["status"].upper() == WORKER_ACTIVE
-        and worker["ip"] is not None
-    ]
-
-    valid_upscale_ips = [cl["ip"] for cl in cluster_data]
-    logger.info(f"Current Worker IPs: {valid_upscale_ips}")
-
-    delete_workers_ip_yaml(valid_upscale_ips=valid_upscale_ips)
-
-    if cluster_data:
-        workers_data = create_worker_yml_file(cluster_data=cluster_data)
-
+        # Run the scaling.py script
+        command = ["python3", "scaling.py", "-p", __get_cluster_password()]
+        subprocess.run(command)
     else:
-        logger.info("No active worker found!")
-        # keep dummy worker alive
-        workers_data = [dummy_worker]
-        logger.info(pformat(workers_data))
-    workers_file_changed = update_workers_yml(
-        worker_data=workers_data, master_data=master_data, dummy_worker=dummy_worker
-    )
-    host_file_changed = add_ips_to_ansible_hosts(valid_upscale_ips=valid_upscale_ips)
-    return host_file_changed or workers_file_changed
+        logger.error(f"Failed to download script. Status code: {response.status_code}")
 
 
-def update_workers_yml(master_data, worker_data, dummy_worker):
-    logger.info("Update Worker YAML")
-    logger.info(f"Update Worker Yaml with data: - {worker_data}")
-    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
-
-    instances_mod = {
-        "workers": worker_data,
-        "deletedWorkers": [],
-        "master": master_data,
-    }
-    if dummy_worker is not None:
-        instances_mod["workers"].append(dummy_worker)
-    worker_ips = set()
-    unique_workers = []
-
-    for worker in worker_data:
-        ip = worker["ip"]
-        if ip not in worker_ips:
-            unique_workers.append(worker)
-            worker_ips.add(ip)
-    instances_mod["workers"] = unique_workers
-    logger.debug(f"New Instance YAML:\n  {instances_mod}")
-
-    with open(new_file, "w", encoding="utf8") as in_file:
-        try:
-            yaml.dump(instances_mod, in_file)
-        except yaml.YAMLError as exc:
-            logger.error("YAML Error: %s", exc)
-            sys.exit(1)
-    workers_file_changed = not filecmp.cmp(INSTANCES_YML, new_file)
-
-    if workers_file_changed:
-        logger.info("Workers  file has changed!")
-        # Replace the original file with the modified file
-        os.replace(new_file, INSTANCES_YML)
-    else:
-        # Remove the temporary file
-        logger.info("Workers  file has NOT changed!")
-
-        os.remove(new_file)
-
-    return workers_file_changed
-
-
-def replace_cidr_for_nsf_mount():
-    logger.info("Get CIDR from common configuration")
-    with open(COMMON_CONFIGURATION_YML, "r", encoding="utf8") as stream:
-
-        try:
-            common_configuration_data = yaml.safe_load(stream)
-            cidr = common_configuration_data["CIDR"]
-            logger.info(f"Current CIDR: {cidr}")
-            new_cidr = cidr[:7] + ".0.0/16"
-            if cidr == new_cidr:
-                logger.info("CIDR is already fixed!")
-                return
-            common_configuration_data["CIDR"] = new_cidr
-
-        except yaml.YAMLError as exc:
-            logger.exception(exc)
-            sys.exit(1)
-    with open(COMMON_CONFIGURATION_YML, "w", encoding="utf8") as f:
-        logger.info(f"Replace old CIDR with: {new_cidr}")
-        yaml.dump(common_configuration_data, f)
-
-
-def validate_ip(ip):
-    logger.info("Validate  IP: ", ip)
-    return re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip)
-
-
-def create_worker_yml_file(cluster_data):
-    workers_data = []
-    for data in cluster_data:
-        yaml_file_target = PLAYBOOK_VARS_DIR + "/" + data["ip"] + ".yml"
-        if not os.path.exists(yaml_file_target):
-            with open(yaml_file_target, "w+", encoding="utf8") as target:
-                try:
-                    yaml.dump(data, target)
-                except yaml.YAMLError as exc:
-                    logger.exception("YAMLError ", exc)
-                    sys.exit(1)
-        else:
-            logger.info(f"Yaml for worker with IP {data['ip']} already exists")
-        workers_data.append(data)
-
-    return workers_data
-
-
-def remove_etc_hosts_entries(ips):
-    hosts_file = "/etc/hosts"
-    backup_file = f"{AUTOSCALING_FOLDER}/hosts.backup"
-    logger.debug(f"Trying to remove  {ips} from /etc/hosts")
-
-    try:
-        # Create a backup of the original hosts file
-        shutil.copy(hosts_file, backup_file)
-
-        # Use sudo to run the command with superuser privileges
-        subprocess.check_call(
-            [
-                "sudo",
-                "python",
-                "-c",
-                f'with open("{hosts_file}", "r") as f:\n  lines = f.readlines()\nnew_lines = [line for line in lines if not any(line.strip().startswith(ip) for ip in {ips})]\nwith open("{hosts_file}", "w") as f:\n  f.writelines(new_lines)',
-            ]
-        )
-
-        logger.debug(f"Removed entries with IPs {', '.join(ips)} from /etc/hosts.")
-    except FileNotFoundError:
-        logger.error(f"The file {hosts_file} was not found.")
-    except Exception as e:
-        # Restore the original hosts file from the backup
-        shutil.copy(backup_file, hosts_file)
-        logger.error(f"An error occurred: {str(e)}")
-    finally:
-        # Remove the backup file
-        if os.path.exists(backup_file):
-            os.remove(backup_file)
-
-
-def delete_workers_ip_yaml(valid_upscale_ips):
-    ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-    files = os.listdir(PLAYBOOK_VARS_DIR)
-    ip_addresses = []
-    remove_ips = []
-    for file in files:
-        match = re.search(ip_pattern, file)
-        if match:
-            ip_addresses.append(match.group())
-    for ip in ip_addresses:
-        if ip not in valid_upscale_ips:
-            remove_ips.append(ip)
-            yaml_file = PLAYBOOK_VARS_DIR + "/" + ip + ".yml"
-            if os.path.isfile(yaml_file):
-                os.remove(yaml_file)
-                logger.debug(f"Deleted YAML  {yaml_file}")
-
-            else:
-                logger.debug(f"Yaml already deleted:  {yaml_file}")
-    if remove_ips:
-        remove_etc_hosts_entries(ips=remove_ips)
-
-
-def add_ips_to_ansible_hosts(valid_upscale_ips) -> bool:
-    logger.info("Add IPs to ansible_hosts")
-
-    original_file = ANSIBLE_HOSTS_FILE
-    new_file = ANSIBLE_HOSTS_FILE + ".tmp"  # Temporary file to store modified contents
-
-    with open(original_file, "r", encoding="utf8") as in_file:
-        lines = in_file.readlines()
-
-    with open(new_file, "w", encoding="utf8") as out_file:
-        found_workers = False
-        for line in lines:
-            if "[workers]" in line:
-                found_workers = True
-                out_file.write(line)
-                for ip in valid_upscale_ips:
-                    ip_line = f"{ip} ansible_connection=ssh ansible_python_interpreter=/usr/bin/python3 ansible_user=ubuntu\n"
-                    out_file.write(ip_line)
-            elif not found_workers:
-                out_file.write(line)
-
-    hosts_file_changed = not filecmp.cmp(original_file, new_file)
-
-    if hosts_file_changed:
-        logger.info("Ansible Host file has changed!")
-        # Replace the original file with the modified file
-        os.replace(new_file, original_file)
-    else:
-        # Remove the temporary file
-        logger.info("Ansible Host file has NOT changed!")
-
-        os.remove(new_file)
-
-    return hosts_file_changed
-
-
-def cluster_scale_down_specific(
-    worker_json, worker_num, rescale, jobs_dict, dummy_worker
-):
+def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict):
     """
     scale down a specific number of workers, downscale list is self generated
     :param jobs_dict: jobs dictionary with pending jobs
     :param worker_json: worker information as json dictionary object
     :param worker_num: number of worker to delete
     :param rescale: rescale cluster with worker check
-    :param dummy_worker: dummy worker data
     :return: boolean, success
     """
     worker_list = __generate_downscale_list(worker_json, worker_num, jobs_dict)
-    return cluster_scale_down_specific_self_check(worker_list, rescale, dummy_worker)
+    return cluster_scale_down_specific_self_check(worker_list, rescale)
 
 
 def __cluster_scale_down_complete():
@@ -4814,9 +4532,7 @@ def __cluster_scale_down_complete():
     :return: boolean, success
     """
     worker_json, worker_count, _, _, _ = receive_node_data_db(False)
-    return cluster_scale_down_specific(
-        worker_json, worker_count, Rescale.CHECK, None, None
-    )
+    return cluster_scale_down_specific(worker_json, worker_count, Rescale.CHECK, None)
 
 
 def __cluster_shut_down():
@@ -4835,37 +4551,32 @@ def __cluster_shut_down():
             logger.info("scale down %s", worker_list)
             time.sleep(WAIT_CLUSTER_SCALING)
             return cluster_scale_down_specific_hostnames_list(
-                worker_list, Rescale.CHECK, None
+                worker_list, Rescale.CHECK
             )
     return False
 
 
-def rescale_cluster(worker_count, dummy_worker):
+def rescale_cluster(worker_count):
     """
     apply the new worker configuration
     execute scaling, modify and run ansible playbook
     wait for workers, all should be ACTIVE (check_workers)
     :param worker_count: expected worker number, 0 default delay
-    :param dummy_worker: dummy worker data
     :return: boolean, success
     """
     if worker_count == 0:
         logger.debug("initiate rescale, wait %s seconds", WAIT_CLUSTER_SCALING)
         time.sleep(WAIT_CLUSTER_SCALING)
 
-    no_error_scale, cluster_data = check_workers(
-        Rescale.NONE, worker_count, dummy_worker
-    )
-    rescale_success = rescale_init(cluster_data, dummy_worker)
+    no_error_scale, cluster_data = check_workers(Rescale.NONE, worker_count)
+    rescale_success = rescale_init()
     if not rescale_success:
         worker_json, _, _, _, _ = receive_node_data_db(False)
         worker_err_list = __check_cluster_node_workers(
             get_cluster_workers_from_api(), worker_json
         )
         if worker_err_list:
-            cluster_scale_down_specific_self_check(
-                worker_err_list, Rescale.NONE, dummy_worker
-            )
+            cluster_scale_down_specific_self_check(worker_err_list, Rescale.NONE)
             __csv_log_entry("E", "0", "20")
             logger.error("playbook failed, possible server problem, wait 10 minutes")
             time.sleep(WAIT_CLUSTER_SCALING * 60)
@@ -4892,16 +4603,15 @@ def __cluster_scale_up_test(upscale_limit):
         "version": AUTOSCALING_VERSION,
     }
     cloud_api(get_url_scale_up(), up_scale_data)
-    rescale_cluster(0, None)
+    rescale_cluster(0)
 
 
-def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale, dummy_worker):
+def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale):
     """
     scale up cluster by flavor
     :param flavor_name: target flavor
     :param upscale_limit: scale up number of workers
     :param rescale: rescaling required
-    :param dummy_worker: dummy worker data
     :return: boolean, success
     """
     logger.info(
@@ -4920,7 +4630,7 @@ def __cluster_scale_up_specific(flavor_name, upscale_limit, rescale, dummy_worke
         return False
     if not rescale:
         return True
-    if not rescale_cluster(worker_count + upscale_limit, dummy_worker):
+    if not rescale_cluster(worker_count + upscale_limit):
         return False
     return True
 
@@ -4932,7 +4642,7 @@ def __cluster_scale_down_idle():
     """
     worker_json, worker_count, worker_in_use, _, _ = receive_node_data_db(False)
     worker_cnt = worker_count - len(worker_in_use)
-    cluster_scale_down_specific(worker_json, worker_cnt, Rescale.CHECK, None, None)
+    cluster_scale_down_specific(worker_json, worker_cnt, Rescale.CHECK, None)
 
 
 def __start_service():
@@ -5188,9 +4898,7 @@ def __cluster_scale_up_choice():
                     if flavor_available_cnt >= upscale_num:
                         logger.info("scale up %s - %sx", flavor_name, upscale_num)
                         time.sleep(WAIT_CLUSTER_SCALING)
-                        __cluster_scale_up_specific(
-                            flavor_name, upscale_num, False, None
-                        )
+                        __cluster_scale_up_specific(flavor_name, upscale_num, False)
                         upscale_sum += upscale_num
                         flavor_names.append({flavor_name, upscale_num})
                     else:
@@ -5207,7 +4915,7 @@ def __cluster_scale_up_choice():
             break
 
     if flavor_names:
-        rescale_cluster(upscale_sum, None)
+        rescale_cluster(upscale_sum)
         rescale_time = __get_time() - time_now
         logger.debug(
             "scale up by choice success: flavors %s, %s seconds",
@@ -5257,7 +4965,7 @@ def __cluster_scale_down_choice_batch():
         time.sleep(WAIT_CLUSTER_SCALING)
 
         return cluster_scale_down_specific_hostnames_list(
-            scale_down_list, Rescale.CHECK, None
+            scale_down_list, Rescale.CHECK
         )
     return False
 
@@ -5296,7 +5004,7 @@ def __cluster_scale_down_choice():
         time.sleep(WAIT_CLUSTER_SCALING)
 
         return cluster_scale_down_specific_hostnames_list(
-            scale_down_list, Rescale.CHECK, None
+            scale_down_list, Rescale.CHECK
         )
     logger.debug("worker unavailable!")
     return False
@@ -5351,15 +5059,14 @@ def __run_as_service():
     """
 
     flavor_data = get_usable_flavors(True, True)
-    dummy_worker = get_dummy_worker(flavor_data)
-    rescale_cluster(-1, dummy_worker)
+    rescale_cluster(-1)
     update_database(flavor_data)
 
     log_watch = Process(target=__log_watch, args=())
     log_watch.daemon = True
     log_watch.start()
     logger.debug("start service!!!")
-    __service(dummy_worker)
+    __service()
 
 
 def __log_watch():
@@ -5396,13 +5103,12 @@ def __clean_log_data():
     __remove_file(as_home + "_database.json")
 
 
-def __service(dummy_worker):
+def __service():
     """
     Start autoscaling as a service.
         - rescale cluster
         - run multiscale in a loop
         - sleep for a time defined in service_frequency
-    :param dummy_worker: dummy worker data
     :return:
     """
     wait_time = int(config_mode["service_frequency"])
@@ -5413,13 +5119,11 @@ def __service(dummy_worker):
         check_config()
         flavor_data = get_usable_flavors(True, True)
         if flavor_data:
-            dummy_worker_tmp = get_dummy_worker(flavor_data)
-            if dummy_worker_tmp and dummy_worker_tmp != dummy_worker:
-                dummy_worker = dummy_worker_tmp
-                rescale_init(None, dummy_worker)
+
+            rescale_init()
             if forecast_by_flavor_history or forecast_by_job_history:
                 update_database(flavor_data)
-            multiscale(flavor_data, dummy_worker)
+            multiscale(flavor_data)
         logger.debug("=== SLEEP ===")
         time.sleep(wait_time)
 
@@ -5482,6 +5186,54 @@ def job_data_from_database(dict_db, flavor_name, job_name, multi_flavor):
                         current_job
                     ]
     return None
+
+
+def get_dummy_worker():
+    """
+    Generate dummy worker entry from the highest flavor from available flavor data.
+    The highest flavor shut be on top on index 0.
+
+    Example:
+        {'cores': 28, 'ephemeral_disk': 4000, 'ephemerals': [],
+        'hostname': 'bibigrid-worker-autoscaling_dummy', 'ip': '0.0.0.4',
+        'memory': 512000, 'status': 'ACTIVE'}
+    :param flavors_data: available flavors
+    :return: dummy worker data as json
+    """
+    flavors_data = get_usable_flavors(True, False)
+    ephemeral_disk = 0
+    max_gpu = 0
+    max_memory = 0
+    max_cpu = 0
+
+    if flavors_data:
+        # over all flavors - include gpu
+        for flavor_tmp in flavors_data:
+            ephemeral_disk = max(
+                ephemeral_disk,
+                convert_gb_to_mib(int(flavor_tmp["flavor"]["ephemeral_disk"])),
+            )
+            max_memory = max(
+                max_memory, convert_gb_to_mib(flavor_tmp["flavor"]["ram_gib"])
+            )
+            max_cpu = max(max_cpu, flavor_tmp["flavor"]["vcpus"])
+            max_gpu = max(max_gpu, int(flavor_tmp["flavor"]["gpu"]))
+    else:
+        logger.error("no flavor available")
+
+    ephemerals = [{"size": ephemeral_disk, "device": "/dev/vdb", "mountpoint": "/mnt"}]
+    dummy_worker = {
+        "cores": max_cpu,
+        "ephemeral_disk": ephemeral_disk,
+        "ephemerals": ephemerals,
+        "hostname": NODE_DUMMY,
+        "ip": "0.0.0.4",
+        "memory": max(max_memory, 8192),
+        "status": "ACTIVE",
+        "gpu": max_gpu,
+    }
+    logger.debug("dummy worker data: %s", dummy_worker)
+    return dummy_worker
 
 
 def flavor_data_from_database(dict_db, flavor_name):
@@ -5757,6 +5509,22 @@ def __clear_job_name(job_values):
     return job_name
 
 
+def version_check_scale_data(version):
+    """
+    Compare passed version and with own version data and initiate an update in case of mismatch.
+    If the program does not run via systemd, the user must carry out the update himself.
+    :param version: current version from cloud api
+    :return:
+    """
+    if version != SCALE_DATA_VERSION:
+        logger.warning(
+            OUTDATED_SCRIPT_MSG.format(
+                SCRIPT_VERSION=SCALE_DATA_VERSION, LATEST_VERSION=version
+            )
+        )
+        automatic_update(latest_version=version)
+
+
 def version_check(version):
     """
     Compare passed version and with own version data and initiate an update in case of mismatch.
@@ -6010,9 +5778,7 @@ def function_test():
     logger.info("Flavor data recieved")
 
     logger.debug("test scale up %s", smallest_flavor)
-    if not __cluster_scale_up_specific(
-        smallest_flavor["flavor"]["name"], 1, True, None
-    ):
+    if not __cluster_scale_up_specific(smallest_flavor["flavor"]["name"], 1, True):
         logger.error("unable to scale up")
         result_ = False
         return result_
@@ -6358,7 +6124,7 @@ def select_mode():
                 ___write_yaml_file(FILE_CONFIG_YAML, yaml_config)
                 restart_systemd_service_request()
                 return
-        logger.debug("missing mode ", mode_id)
+        logger.debug(f"missing mode {mode_id}")
     except TypeError:
         logger.debug("broken config, use -reset")
 
@@ -6462,7 +6228,7 @@ if __name__ == "__main__":
             sys.exit(0)
         elif sys.argv[1] in ["-rsc", "--rsc", "-rescale", "--rescale"]:
             logger.debug("rescale cluster configuration")
-            rescale_init(None, None)
+            rescale_init()
             sys.exit(0)
         elif sys.argv[1] in ["-nd", "--nd", "-node", "--node"]:
             receive_node_data_live()
@@ -6487,7 +6253,6 @@ if __name__ == "__main__":
             fv_info = get_usable_flavors(False, True)
             if fv_info and LOG_LEVEL == logging.DEBUG:
                 logger.debug(pformat(fv_info))
-                logger.debug(pformat(get_dummy_worker(fv_info)))
             sys.exit(0)
         elif sys.argv[1] in ["-c", "--c", "-clusterdata", "--clusterdata"]:
             logger.debug(get_cluster_workers_from_api())
@@ -6553,14 +6318,12 @@ if __name__ == "__main__":
                     )
                     time.sleep(WAIT_CLUSTER_SCALING)
                     worker_j, _, _, _, _ = receive_node_data_db(False)
-                    __verify_cluster_workers(
-                        get_cluster_workers_from_api(), worker_j, None
-                    )
+                    __verify_cluster_workers(get_cluster_workers_from_api(), worker_j)
                 elif arg in ["-pb", "--pb", "-playbook", "--playbook"]:
                     logger.debug("run_ansible_playbook")
                     run_ansible_playbook()
                 elif arg in ["-cw", "--cw", "-checkworker", "--checkworker"]:
-                    check_workers(Rescale.INIT, 0, None)
+                    check_workers(Rescale.INIT, 0)
                 elif arg in ["-s", "-service", "--service"]:
                     __run_as_service()
                 elif arg in ["-systemd", "--systemd"]:
@@ -6590,7 +6353,7 @@ if __name__ == "__main__":
                 ]:
                     logger.debug("scale-down-specific")
                     if "worker" in arg2:
-                        cluster_scale_down_specific_hostnames(arg2, Rescale.CHECK, None)
+                        cluster_scale_down_specific_hostnames(arg2, Rescale.CHECK)
                     else:
                         logger.error("hostname parameter without 'worker'")
                         sys.exit(1)
@@ -6602,12 +6365,10 @@ if __name__ == "__main__":
                 if arg in ["-sus", "--sus", "-scaleupspecific", "--scaleupspecific"]:
                     logger.debug("scale-up")
                     if sys.argv[3].isnumeric():
-                        __cluster_scale_up_specific(
-                            sys.argv[2], int(sys.argv[3]), True, None
-                        )
+                        __cluster_scale_up_specific(sys.argv[2], int(sys.argv[3]), True)
         else:
             logger.debug("\npass a mode via parameter, use -h for help")
-            rescale_cluster(-1, None)
+            rescale_cluster(-1)
     finally:
         os.unlink(pidfile)
     sys.exit(0)
