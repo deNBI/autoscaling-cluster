@@ -80,9 +80,12 @@ NODE_MIX = "MIX"
 NODE_IDLE = "IDLE"
 NODE_DRAIN = "DRAIN"
 NODE_DOWN = "DOWN"
+NODE_DUMMY = "bibigrid-worker-autoscaling_dummy"
+NODE_DUMMY_REQ = True
 WORKER_SCHEDULING = "SCHEDULING"
 WORKER_PLANNED = "PLANNED"
 WORKER_ERROR = "ERROR"
+WORKER_CREATION_FAILED = "CREATION_FAILED"
 WORKER_FAILED = "FAILED"
 WORKER_PORT_CLOSED = "PORT_CLOSED"
 WORKER_ACTIVE = "ACTIVE"
@@ -831,7 +834,7 @@ def cluster_worker_to_flavor(flavors_data, cluster_worker):
 
     if cluster_worker:
         for fv_data in flavors_data:
-            if cluster_worker["flavor"] == fv_data["flavor"]["name"]:
+            if cluster_worker["flavor"]["name"] == fv_data["flavor"]["name"]:
                 return fv_data
         logger.error("flavor not found for worker %s", cluster_worker["flavor"])
     return None
@@ -1021,7 +1024,8 @@ def get_wrong_password_msg():
 
 
 def __get_portal_url_scaling():
-    return config_data["portal_scaling_link"]
+    scaling_link = config_data["portal_scaling_link"]
+    return scaling_link if scaling_link.endswith("/") else scaling_link + "/"
 
 
 def get_url_scale_up():
@@ -1226,6 +1230,13 @@ def __receive_node_stats(node_dict, quiet):
     logger.debug("node dict: %s ", pformat(node_dict))
     node_filter(node_dict)
     if node_dict:
+        if NODE_DUMMY_REQ and NODE_DUMMY in node_dict:
+            del node_dict[NODE_DUMMY]
+        elif not NODE_DUMMY_REQ and NODE_DUMMY in node_dict:
+            logger.error("%s found, but dummy mode is not active", NODE_DUMMY)
+            sys.exit(1)
+        else:
+            logger.error("%s not found, but dummy mode is active", NODE_DUMMY)
         for key, value in list(node_dict.items()):
             if "temporary_disk" in value:
                 tmp_disk = value["temporary_disk"]
@@ -1845,10 +1856,13 @@ def __worker_states():
             )
             if NODE_DOWN in c_worker["status"]:
                 worker_down.append(c_worker["hostname"])
-            elif WORKER_ERROR == c_worker["status"]:
+            elif WORKER_ERROR == c_worker["status"].upper():
                 logger.error("ERROR %s", c_worker["hostname"])
                 worker_error.append(c_worker["hostname"])
-            elif WORKER_FAILED in c_worker["status"]:
+            elif WORKER_CREATION_FAILED == c_worker["status"].upper():
+                logger.error("CREATION FAILED %s", c_worker["hostname"])
+                worker_error.append(c_worker["hostname"])
+            elif WORKER_FAILED in c_worker["status"].upper():
                 logger.error("FAILED workers, not recoverable %s", c_worker["hostname"])
                 sys.exit(1)
             elif WORKER_ACTIVE == c_worker["status"].upper():
@@ -3901,15 +3915,15 @@ def __verify_cluster_workers(cluster_workers, worker_json):
         logger.debug("cluster worker data is empty")
     worker_missing = __check_cluster_node_workers(cluster_workers, worker_json)
 
-    error_states = [
-        WORKER_ERROR,
-        WORKER_PLANNED,
-    ]
+    error_states = [WORKER_ERROR, WORKER_PLANNED, WORKER_CREATION_FAILED]
     worker_cluster_err_list = []
     for clt in cluster_workers:
-        logger.debug("cluster worker: %s, state %s", clt["hostname"], clt["status"])
-        if any(ele in clt["status"] for ele in error_states):
-            worker_cluster_err_list.append(clt["hostname"])
+        if clt["hostname"] != NODE_DUMMY:
+            logger.debug(
+                "cluster worker: %s, state %s", clt["hostname"], clt["status"].upper()
+            )
+            if any(ele in clt["status"].upper() for ele in error_states):
+                worker_cluster_err_list.append(clt["hostname"])
     logger.debug("cluster workers, error list: %s", worker_cluster_err_list)
     logger.debug("cluster workers, missing list %s", worker_missing)
     error_worker_list = worker_missing + worker_cluster_err_list
@@ -5145,6 +5159,54 @@ def job_data_from_database(dict_db, flavor_name, job_name, multi_flavor):
     return None
 
 
+def get_dummy_worker():
+    """
+    Generate dummy worker entry from the highest flavor from available flavor data.
+    The highest flavor shut be on top on index 0.
+
+    Example:
+        {'cores': 28, 'ephemeral_disk': 4000, 'ephemerals': [],
+        'hostname': 'bibigrid-worker-autoscaling_dummy', 'ip': '0.0.0.4',
+        'memory': 512000, 'status': 'ACTIVE'}
+    :param flavors_data: available flavors
+    :return: dummy worker data as json
+    """
+    flavors_data = get_usable_flavors(True, False)
+    ephemeral_disk = 0
+    max_gpu = 0
+    max_memory = 0
+    max_cpu = 0
+
+    if flavors_data:
+        # over all flavors - include gpu
+        for flavor_tmp in flavors_data:
+            ephemeral_disk = max(
+                ephemeral_disk,
+                convert_gb_to_mib(int(flavor_tmp["flavor"]["ephemeral_disk"])),
+            )
+            max_memory = max(
+                max_memory, convert_gb_to_mib(flavor_tmp["flavor"]["ram_gib"])
+            )
+            max_cpu = max(max_cpu, flavor_tmp["flavor"]["vcpus"])
+            max_gpu = max(max_gpu, int(flavor_tmp["flavor"]["gpu"]))
+    else:
+        logger.error("no flavor available")
+
+    ephemerals = [{"size": ephemeral_disk, "device": "/dev/vdb", "mountpoint": "/mnt"}]
+    dummy_worker = {
+        "cores": max_cpu,
+        "ephemeral_disk": ephemeral_disk,
+        "ephemerals": ephemerals,
+        "hostname": NODE_DUMMY,
+        "ip": "0.0.0.4",
+        "memory": max(max_memory, 8192),
+        "status": "ACTIVE",
+        "gpu": max_gpu,
+    }
+    logger.debug("dummy worker data: %s", dummy_worker)
+    return dummy_worker
+
+
 def flavor_data_from_database(dict_db, flavor_name):
     fv_name = __clear_flavor_name(flavor_name)
     if fv_name in dict_db["flavor_name"]:
@@ -6064,7 +6126,7 @@ def __select_ignore_workers():
             continue
         for i, k in enumerate(node_dict):
             worker_id = int(worker_id)
-            if worker_id == i:
+            if worker_id == i and k != NODE_DUMMY:
                 logger.debug(i, k)
                 workers_ignore.append(k)
                 break
