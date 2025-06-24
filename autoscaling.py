@@ -101,7 +101,7 @@ JOB_PENDING = 0
 JOB_RUNNING = 1
 
 DOWNSCALE_LIMIT = 0
-WAIT_CLUSTER_SCALING = 30
+WAIT_CLUSTER_SCALING = 10
 FLAVOR_HIGH_MEM = "hmf"
 
 DATABASE_FILE = AUTOSCALING_FOLDER + IDENTIFIER + "_database.json"
@@ -1032,14 +1032,14 @@ def get_url_scale_up():
     """
     :return: return portal api scale up url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-up/"
+    return __get_portal_url_scaling() + cluster_id + "/scale-up/"
 
 
 def get_url_scale_down_specific():
     """
     :return: return portal api scale down specific url
     """
-    return __get_portal_url_scaling() + "/" + cluster_id + "/scale-down/specific/"
+    return __get_portal_url_scaling() + cluster_id + "/scale-down/specific/"
 
 
 def get_url_info_cluster():
@@ -1442,8 +1442,6 @@ def get_cluster_data():
         else:
             logger.error("server error - unable to receive cluster data")
             __csv_log_entry("E", 0, "16")
-            __sleep_on_server_error()
-
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
@@ -1749,8 +1747,6 @@ def get_usable_flavors(quiet, cut):
                 "server error - unable to receive flavor data, code %s", res.status_code
             )
             __csv_log_entry("E", 0, "15")
-            __sleep_on_server_error()
-            return []
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
@@ -1898,7 +1894,6 @@ def check_workers(rescale, worker_count):
     no_error = True
     max_wait_cnt = 0
     service_frequency = int(config_mode["service_frequency"])
-
     while not worker_ready:
         (
             worker_active,
@@ -1911,30 +1906,25 @@ def check_workers(rescale, worker_count):
 
         if cluster_data is None:
             logger.error(
-                "Unable to receive cluster data ... try again in %s seconds",
+                "unable to receive cluster data ... try again in %s seconds",
                 service_frequency * WAIT_CLUSTER_SCALING,
             )
             time.sleep(service_frequency * WAIT_CLUSTER_SCALING)
             continue
-        if worker_count < 0:
-            return no_error, cluster_data
         cluster_count_live = len(cluster_workers)
         logger.info(
-            "Workers: active %s, error %s, down %s, not ready %s, error list: %s.",
+            "workers: active %s, error %s, down %s, not ready %s, error list: %s.",
             len(worker_active),
             len(worker_error),
             len(worker_down),
             len(worker_unknown),
             worker_error,
         )
-        logger.debug("Workers expected %s", worker_count)
-
+        logger.debug("workers expected %s", worker_count)
         elapsed_time = time.time() - start_time
-        logger.info(f"Worker Check elapsed time: {elapsed_time}")
-
         if cluster_count_live < worker_count and WAIT_CLUSTER_SCALING > max_wait_cnt:
             logger.debug(
-                "Increase wait time for cloud API %s, wait until %s workers are listed, current %s",
+                "increase wait time for cloud api %s, wait until %s workers are listed, current %s",
                 max_wait_cnt,
                 worker_count,
                 cluster_count_live,
@@ -1964,28 +1954,11 @@ def check_workers(rescale, worker_count):
         elif not worker_unknown and not worker_error:
             logger.info("ALL WORKERS ACTIVE!")
             if cluster_count_live < worker_count:
-                logger.warning("Higher number of workers expected!")
+                logger.warning("higher number of workers expected!")
             return no_error, cluster_data
-        elif elapsed_time > max_time:
-            if worker_unknown:
-                logger.error("Workers are stuck: %s", worker_unknown)
-                cluster_scale_down_specific_self_check(
-                    worker_unknown + worker_error, rescale, dummy_worker
-                )
-                worker_count -= len(worker_unknown + worker_error)
-                no_error = False
-                __csv_log_entry("E", len(worker_unknown + worker_error), "11")
-            if worker_down:
-                logger.error("Scale down workers that are down: %s", worker_down)
-                cluster_scale_down_specific_self_check(
-                    worker_down, rescale, dummy_worker
-                )
-                worker_count -= len(worker_down)
-                no_error = False
-                __csv_log_entry("E", len(worker_down), "17")
         else:
             logger.info(
-                "At least one worker is not 'ACTIVE', wait ... %d seconds",
+                "at least one worker is not 'ACTIVE', wait ... %d seconds",
                 WAIT_CLUSTER_SCALING,
             )
             time.sleep(WAIT_CLUSTER_SCALING)
@@ -4218,8 +4191,6 @@ def __cloud_api_(portal_url_scale, worker_data):
             return False
     except json.JSONDecodeError:
         logger.debug("Invalid JSON response.")
-        __sleep_on_server_error()
-
         return False
 
 
@@ -4764,7 +4735,7 @@ def create_pid_file():
 def __example_configuration():
     config_example = {
         "scaling": {
-            "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling",
+            "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling/",
             "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
             "scheduler": "slurm",
             "active_mode": "basic",
@@ -6282,10 +6253,6 @@ if __name__ == "__main__":
             arg = sys.argv[1]
             logger.debug("autoscaling with %s: ", " ".join(sys.argv))
             if len(sys.argv) == 2:
-                if arg in ["-data"]:
-                    logger.debug("scale-up")
-
-                    __cluster_scale_up_test(1)
                 if arg in ["-su", "--su", "-scaleup", "--scaleup"]:
                     logger.debug("scale-up")
                     __cluster_scale_up_test(1)
