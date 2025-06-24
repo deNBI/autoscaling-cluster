@@ -1,65 +1,65 @@
 {
-   "extends":[
-      "config:base",
+   "extends": [
+      "config:recommended",
       ":automergePatch"
    ],
-   "packageRules":[
+   "packageRules": [
       {
-         "updateTypes":[
+         "matchUpdateTypes": [
             "major"
          ],
-         "addLabels":[
+         "addLabels": [
             "major"
          ]
       },
       {
-         "updateTypes":[
+         "matchUpdateTypes": [
             "minor"
          ],
-         "addLabels":[
+         "addLabels": [
             "minor"
          ]
       },
       {
-         "updateTypes":[
+         "matchUpdateTypes": [
             "patch"
          ],
-         "addLabels":[
+         "addLabels": [
             "patch"
          ]
       },
       {
-         "updateTypes":[
+         "matchUpdateTypes": [
             "pin"
          ],
-         "addLabels":[
+         "addLabels": [
             "pin"
          ]
       }
    ],
-   "vulnerabilityAlerts":{
-      "labels":[
+   "vulnerabilityAlerts": {
+      "labels": [
          "security"
       ]
    },
-   "constraints":{
-      "python":"3.8"
+   "constraints": {
+      "python": "3.8"
    },
-   "baseBranches":[
+   "baseBranches": [
       "dev"
    ],
-   "reviewers":[
+   "reviewers": [
       "team:portal-dev"
    ],
-   "labels":[
+   "labels": [
       "dependencies"
    ],
-   "assignees":[
+   "assignees": [
       "team:portal-dev"
    ],
-   "branchPrefix":"deps/",
-   "bumpVersion":"minor",
-   "rebaseWhen":"behind-base-branch",
-   "commitBodyTable":"true",
-   "commitMessagePrefix":"feat(Dependencies):"
+   "branchPrefix": "deps/",
+   "bumpVersion": "minor",
+   "rebaseWhen": "behind-base-branch",
+   "commitBodyTable": true,
+   "commitMessagePrefix": "feat(Dependencies):"
 }
