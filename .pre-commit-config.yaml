@@ -14,7 +14,7 @@ repos:
     rev: 24.2.0
     hooks:
       - id: black
-        language_version: python3.11
+        language_version: python3.12
   - repo: https://github.com/sondrelg/pep585-upgrade
     rev: 'v1.0.1'  # Use the sha / tag you want to point at
     hooks:

@@ -117,7 +117,7 @@ components:
         type: string
       description: cluster id
       example: czi1k7wir1kyt2s
-  
+
   requestBodies:
     cluster_scale-up:
       content:
@@ -231,7 +231,7 @@ components:
           type: string
           example: 0.3.3
       description: cluster data scale-up
-    
+
     cluster-data_scale-up_flavors:
       type: object
       properties:
@@ -277,7 +277,7 @@ components:
           type: integer
           example: 1
       description: scale-up
-    
+
     worker_batches:
       type: object
       properties:

@@ -27,7 +27,7 @@ A password is regenerated with each scaling operation and this new password is r
         -fv         : -flavors          :                 : print available flavors
         -m          : -mode             :                 : activate mode from configuration
         -p          : -password         :                 : set cluster password
-        -rsc        : -rescale          :                 : run scaling with ansible playbook 
+        -rsc        : -rescale          :                 : run scaling with ansible playbook
         -s          : -service          :                 : run as service
         -i          : -ignore           :                 : ignore workers
         -sdc        : -scaledownchoice  :                 : scale down (worker id) - interactive mode
@@ -105,7 +105,7 @@ The modes are tested with experimental workflows. Due to the wide range of possi
 * adaptive
   * The adaptive mode contains a balanced intention to start new workers. In addition, the search for similar jobs in the database is activated. The workers are limited to ten per flavor and iteration. The drain nodes option is active for high memory workers with a staged worker replacement. Workers are generated for multiple flavors per iteration.
 * multi
-  * This mode is suitable for most cases. Workers with multiple flavors are generated, but as long as the workers can also process smaller jobs, they will not be deleted. This mode is the better and faster choice if the jobs are frequented while they are being processed, i.e. smaller jobs are dependent on the larger ones and these are therefore added to the scheduler queue at intervals. The larger non-high memory workers are automatically calculated after exceeding the worker value limit of ten new workers. It should offer a balance of speed due to the multiple flavor starts and the balanced use of smaller and larger workers. Since no viable workers are replaced, there is no loss of time and resources due to drain. 
+  * This mode is suitable for most cases. Workers with multiple flavors are generated, but as long as the workers can also process smaller jobs, they will not be deleted. This mode is the better and faster choice if the jobs are frequented while they are being processed, i.e. smaller jobs are dependent on the larger ones and these are therefore added to the scheduler queue at intervals. The larger non-high memory workers are automatically calculated after exceeding the worker value limit of ten new workers. It should offer a balance of speed due to the multiple flavor starts and the balanced use of smaller and larger workers. Since no viable workers are replaced, there is no loss of time and resources due to drain.
 * reactive
   * The reactive mode has no worker forecast and a light time threshold.
 * flavor
@@ -135,7 +135,7 @@ The modes are tested with experimental workflows. Due to the wide range of possi
   * Initialize the history data retroactive with the specified days.
 * `ignore_workers`: `[]`
   * Workers can be completely ignored by autoscaling, these are selectable with `autoscaling -i`.
-* `resource_sorting`: `True` 
+* `resource_sorting`: `True`
   * The autoscaling should sort the job queue itself by resources.
   * If false, use job priority from scheduler.
 
@@ -170,7 +170,7 @@ Dynamic worker limit per cycle, depends on pending jobs and the selected setting
   * Defines the maximum number of workers that can be started per cycle.
 * `limit_workers`: `0`
   * Limit the amount of running workers.
-* `limit_flavor_usage`: 
+* `limit_flavor_usage`:
   * example: `'de.NBI highmem xlarge': 16`
 
 
@@ -239,7 +239,7 @@ Dynamic worker limit per cycle, depends on pending jobs and the selected setting
   * `-1` only GPU flavors
 
 
-###### select large flavors 
+###### select large flavors
 Usually the smallest available flavor is used, alternatively, multiple jobs can be collapsed into one or more major flavors.
 * `large_flavors`: `False`
   * calculate a larger flavor to process multiple jobs on one worker
