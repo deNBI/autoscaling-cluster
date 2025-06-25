@@ -46,7 +46,6 @@ SCALE_DATA_VERSION = "0.7.0"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
-SCALING_SCRIPT_URL = "https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py"
 
 RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
@@ -1009,6 +1008,10 @@ def read_cluster_id():
             )
             sys.exit(1)
     return cluster_id_
+
+
+def __get_scaling_script_url():
+    return config_data["scaling_script_url"]
 
 
 def __get_portal_url_webapp():
@@ -4459,7 +4462,7 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
 
 def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
-    response = requests.get(SCALING_SCRIPT_URL)
+    response = requests.get(__get_scaling_script_url())
 
     if response.status_code == 200:
         logger.info("Starting scaling script...")
