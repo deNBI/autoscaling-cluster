@@ -4462,8 +4462,9 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
 
 def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
-    response = requests.get(__get_scaling_script_url())
-
+    scaling_script_url = __get_scaling_script_url()
+    response = requests.get(scaling_script_url)
+    logger.info(f"Downloading scaling script from: {scaling_script_url}")
     if response.status_code == 200:
         logger.info("Starting scaling script...")
         with open("scaling.py", "w") as f:
@@ -4473,7 +4474,9 @@ def update_all_yml_files_and_run_playbook():
         command = ["python3", "scaling.py", "-p", __get_cluster_password()]
         subprocess.run(command)
     else:
-        logger.error(f"Failed to download script. Status code: {response.status_code}")
+        logger.error(
+            f"Failed to download script from {scaling_script_url}. Status code: {response.status_code}"
+        )
 
 
 def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict):
@@ -4729,6 +4732,7 @@ def __example_configuration():
         "scaling": {
             "portal_scaling_link": "https://simplevm.denbi.de/portal/api/autoscaling/",
             "portal_webapp_link": "https://simplevm.denbi.de/portal/webapp/#/clusters/overview",
+            "scaling_script_url": "https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py",
             "scheduler": "slurm",
             "active_mode": "basic",
             "automatic_update": True,
