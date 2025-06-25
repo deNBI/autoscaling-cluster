@@ -42,7 +42,7 @@ OUTDATED_SCRIPT_MSG = (
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
 AUTOSCALING_VERSION = "2.0.0"
-SCALE_DATA_VERSION = "0.1.0"
+SCALE_DATA_VERSION = "0.7.0"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -1430,27 +1430,15 @@ def get_cluster_data():
             version_check_scale_data(res["VERSION"])
             logger.debug(pformat(res))
             return res
-        if response.status_code == HTTP_CODE_UNAUTHORIZED:
-            logger.error(get_wrong_password_msg())
-            sys.exit(1)
-        if response.status_code == HTTP_CODE_OUTDATED:
-            logger.error(response.json().get("message"))
-
-            latest_version = response.json().get("latest_version", None)
-
-            automatic_update(latest_version=latest_version)
         else:
-            logger.error("server error - unable to receive cluster data")
-            __csv_log_entry("E", 0, "16")
+            handle_code_unauthorized(res=res)
+
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
         logger.error("unable to receive cluster data")
-        if e.response.status_code == HTTP_CODE_OUTDATED:
-            logger.error("version missmatch error")
-        elif requests.exceptions.HTTPError == HTTP_CODE_UNAUTHORIZED:
-            logger.debug(get_wrong_password_msg())
-            logger.error(get_wrong_password_msg())
+        if res.status_code == HTTP_CODE_UNAUTHORIZED:
+            handle_code_unauthorized(res=res)
         else:
             __sleep_on_server_error()
     except OSError as error:
@@ -1733,15 +1721,10 @@ def get_usable_flavors(quiet, cut):
                     )
                 counter += 1
             return list(flavors_data_mod)
+
         if res.status_code == HTTP_CODE_UNAUTHORIZED:
-            logger.error(get_wrong_password_msg())
-            sys.exit(1)
-        if res.status_code == HTTP_CODE_OUTDATED:
-            logger.error(res.json().get("message"))
+            handle_code_unauthorized(res=res)
 
-            latest_version = res.json().get("latest_version", None)
-
-            automatic_update(latest_version=latest_version)
         else:
             logger.error(
                 "server error - unable to receive flavor data, code %s", res.status_code
@@ -1752,14 +1735,9 @@ def get_usable_flavors(quiet, cut):
         logger.error(e.response.text)
         logger.error(e.response.status_code)
         __csv_log_entry("E", 0, "14")
-        if e.response.status_code == HTTP_CODE_OUTDATED:
-            logger.error(e.response.json().get("message"))
 
-            latest_version = e.response.json().get("latest_version", None)
-
-            automatic_update(latest_version=latest_version)
-        elif e.response.status_code == HTTP_CODE_UNAUTHORIZED:
-            logger.error(get_wrong_password_msg())
+        if e.response.status_code == HTTP_CODE_UNAUTHORIZED:
+            handle_code_unauthorized(res=res)
         else:
             __sleep_on_server_error()
     except OSError as error:
@@ -4227,14 +4205,8 @@ def cloud_api(portal_url_scale, worker_data):
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
         logger.error(e.response.status_code)
-        if e.response.status_code == HTTP_CODE_OUTDATED:
-            logger.error(e.response.json().get("message"))
-
-            latest_version = e.response.json().get("latest_version", None)
-
-            automatic_update(latest_version=latest_version)
-        elif e.response.status_code == HTTP_CODE_UNAUTHORIZED:
-            logger.error(get_wrong_password_msg())
+        if e.response.status_code == HTTP_CODE_UNAUTHORIZED:
+            handle_code_unauthorized(res=e.response)
         else:
             __sleep_on_server_error()
         __csv_log_entry("E", 0, "13")
@@ -4245,6 +4217,23 @@ def cloud_api(portal_url_scale, worker_data):
     except Exception as e:
         logger.error("error by accessing cloud api %s", e)
         return None
+
+
+def handle_code_unauthorized(res):
+    if res.status_code == HTTP_CODE_UNAUTHORIZED:
+        error_msg = res.json()["message"]
+        logger.error(error_msg)
+
+        if "Invalid Password" in error_msg:
+
+            logger.error(get_wrong_password_msg())
+            sys.exit(1)
+
+        elif "Wrong script version!" in error_msg:
+
+            latest_version = res.json().get("latest_version", None)
+
+            automatic_update(latest_version=latest_version)
 
 
 def cluster_scale_up(
@@ -6140,6 +6129,7 @@ def __select_ignore_workers():
 if __name__ == "__main__":
     logger = setup_logger(LOG_FILE)
     scheduler_interface = None
+    systemd_start = False
 
     if len(sys.argv) == 2:
         if sys.argv[1] in ["-v", "--v", "-version", "--version"]:
