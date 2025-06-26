@@ -51,8 +51,9 @@ RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
 HTTP_CODE_OK = 200
 HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 400
-
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
+SCALING_SCRIPT_FILE = AUTOSCALING_FOLDER + "scaling.py"
+
 IDENTIFIER = "autoscaling"
 
 FILE_CONFIG = IDENTIFIER + "_config.yaml"
@@ -4467,11 +4468,11 @@ def update_all_yml_files_and_run_playbook():
     logger.info(f"Downloading scaling script from: {scaling_script_url}")
     if response.status_code == 200:
         logger.info("Starting scaling script...")
-        with open("scaling.py", "w") as f:
+        with open(SCALING_SCRIPT_FILE, "w") as f:
             f.write(response.text)
 
         # Run the scaling.py script
-        command = ["python3", "scaling.py", "-p", __get_cluster_password()]
+        command = ["python3", SCALING_SCRIPT_FILE, "-p", __get_cluster_password()]
         subprocess.run(command)
     else:
         logger.error(
