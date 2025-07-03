@@ -1435,7 +1435,7 @@ def get_cluster_data():
             logger.debug(pformat(res))
             return res
         else:
-            handle_code_unauthorized(res=res)
+            handle_code_unauthorized(res=response)
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
