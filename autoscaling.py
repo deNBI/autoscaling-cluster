@@ -1435,7 +1435,7 @@ def get_cluster_data():
             logger.debug(pformat(res))
             return res
         else:
-            handle_code_unauthorized(res=res)
+            handle_code_unauthorized(res=response)
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
@@ -4464,21 +4464,109 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
 def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
     scaling_script_url = __get_scaling_script_url()
-    response = requests.get(scaling_script_url)
-    logger.info(f"Downloading scaling script from: {scaling_script_url}")
-    if response.status_code == 200:
-        logger.info("Starting scaling script...")
-        with open(SCALING_SCRIPT_FILE, "w") as f:
-            f.write(response.text)
+    if update_scaling_script(url=scaling_script_url,filename=SCALING_SCRIPT_FILE):
+
 
         # Run the scaling.py script
         command = ["python3", SCALING_SCRIPT_FILE, "-p", __get_cluster_password()]
         subprocess.run(command)
     else:
-        logger.error(
-            f"Failed to download script from {scaling_script_url}. Status code: {response.status_code}"
-        )
+        logger.error(f"Failed to download script from {scaling_script_url}.")
 
+
+
+def update_scaling_script(url, filename):
+    """Checks if the file needs to be downloaded or updated."""
+    logger.debug(f"Check if file {filename} needs to be redownloaded from {url}...")
+
+    if not os.path.exists(filename):
+        print("File not present. Downloading...")
+        if not download_file(url, filename):
+            return False
+
+    # Create .md5 and .etag files only after a successful download
+    etag_filename = filename + ".etag"
+    md5_filename = filename + ".md5"
+
+    if not os.path.exists(etag_filename) or not os.path.exists(md5_filename):
+        logger.debug(f"etag or md5 file for {filename} not present. Saving files...")
+        # Save .md5 and .etag
+        with open(md5_filename, 'w') as f:
+            f.write(calculate_md5(filename))
+        response = requests.head(url)  # Use HEAD request to get headers only
+        response.raise_for_status()
+        remote_etag = response.headers.get('ETag')
+        with open(etag_filename, 'w') as f:
+            f.write(remote_etag)
+
+    else:
+        existing_md5 = None
+        with open(md5_filename, 'r') as f:
+            existing_md5 = f.read().strip()
+
+        calculated_md5 = calculate_md5(filename)
+
+        if calculated_md5 != existing_md5:
+            logger.debug(f"md5 checksum mismatch - {filename}! Redownloading...")
+            if not download_file(url, filename):
+                return False
+            # Save new .md5 and .etag after redownload
+            with open(md5_filename, 'w') as f:
+                f.write(calculate_md5(filename))  # Calculate after download
+            response = requests.head(url)  # Use HEAD request to get headers only
+            response.raise_for_status()
+            remote_etag = response.headers.get('ETag')
+            with open(etag_filename, 'w') as f:
+                f.write(remote_etag)
+        else:
+            existing_etag = None
+            with open(etag_filename, 'r') as f:
+                existing_etag = f.read().strip()
+
+            response = requests.head(url)  # Use HEAD request to get headers only
+            response.raise_for_status()
+            remote_etag = response.headers.get('ETag')
+
+            if remote_etag and remote_etag != existing_etag:
+                logger.debug(f"etag mismatch - {filename} ! Downloading...")
+                if not download_file(url, filename):
+                    return False
+                # Save new .md5 and .etag after redownload
+                with open(md5_filename, 'w') as f:
+                    f.write(calculate_md5(filename))  # Calculate after download
+                with open(etag_filename, 'w') as f:
+                    f.write(remote_etag)
+            else:
+                logger.debug("File {file} is up to date. Doing nothing.")
+
+    return True  # Check completed
+
+def download_file(url, filename):
+    """Downloads a file from a URL."""
+    try:
+        logger.info(f"Downloading {filename} script from: {url}")
+
+        response = requests.get(url, stream=True)
+        response.raise_for_status()  # Raise HTTPError for bad responses
+
+        with open(filename, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        logger.info("File downloaded and saved: %s",filename)
+        return True  # Download successful
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error during download: {e}")
+        return False  # Download failed
+
+
+def calculate_md5(file_path):
+    """Calculates the MD5 checksum of a file."""
+    md5 = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
 
 def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict):
     """
