@@ -1432,7 +1432,7 @@ def get_cluster_data():
 
         if response.status_code == HTTP_CODE_OK:
             res = response.json()
-            version_check_scale_data(res["VERSION"])
+            version_check_scale_data(res["AUTOSCALING_VERSION"])
             logger.debug(pformat(res))
             return res
         else:
