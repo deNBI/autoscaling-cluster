@@ -3598,12 +3598,11 @@ def __calculate_scale_up_data(
                     logger.error(
                         "flavor_default is active, but selected flavor not meet the requirements for minimal flavor"
                     )
-                    return None, worker_memory_usage
+                    
             else:
                 logger.error(
                     "flavor_default is active, selected flavor is not available"
                 )
-                return None, worker_memory_usage
 
         average_jobs_per_flavor = __multiple_jobs_per_flavor(
             flavor_tmp,
