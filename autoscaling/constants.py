@@ -1,0 +1,94 @@
+import os
+from pathlib import Path
+
+OUTDATED_SCRIPT_MSG = (
+    "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
+    "-  please download the current version and run it again!"
+)
+
+PORTAL_LINK = "https://cloud.denbi.de"
+AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
+AUTOSCALING_VERSION = "2.1.0"
+SCALING_TYPE = "autoscaling"
+
+REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
+REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
+
+RAW_REPO_LINK = "https://raw.githubusercontent.com/deNBI/autoscaling-cluster/"
+HTTP_CODE_OK = 200
+HTTP_CODE_UNAUTHORIZED = 401
+HTTP_CODE_OUTDATED = 400
+AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
+SCALING_SCRIPT_FILE = AUTOSCALING_FOLDER + "scaling.py"
+
+IDENTIFIER = "autoscaling"
+
+FILE_CONFIG = IDENTIFIER + "_config.yaml"
+FILE_CONFIG_YAML = AUTOSCALING_FOLDER + FILE_CONFIG
+FILE_ID = IDENTIFIER + ".py"
+FILE_PROG = AUTOSCALING_FOLDER + FILE_ID
+FILE_PID = IDENTIFIER + ".pid"
+SOURCE_LINK_CONFIG = REPO_LINK + FILE_CONFIG
+
+CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + "cluster_pw.json"
+
+LOG_FILE = AUTOSCALING_FOLDER + IDENTIFIER + ".log"
+LOG_CSV = AUTOSCALING_FOLDER + IDENTIFIER + ".csv"
+
+NORM_HIGH = None
+NORM_LOW = 0.0001
+FORCE_LOW = 0.0001
+
+FLAVOR_GPU_ONLY = -1
+FLAVOR_GPU_REMOVE = 1
+# ----- NODE STATES -----
+NODE_ALLOCATED = "ALLOC"
+NODE_MIX = "MIX"
+NODE_IDLE = "IDLE"
+NODE_DRAIN = "DRAIN"
+NODE_DOWN = "DOWN"
+NODE_DUMMY = "bibigrid-worker-autoscaling_dummy"
+NODE_DUMMY_REQ = True
+WORKER_SCHEDULING = "SCHEDULING"
+WORKER_PLANNED = "PLANNED"
+WORKER_ERROR = "ERROR"
+WORKER_CREATION_FAILED = "CREATION_FAILED"
+WORKER_FAILED = "FAILED"
+WORKER_PORT_CLOSED = "PORT_CLOSED"
+WORKER_ACTIVE = "ACTIVE"
+
+# flavor depth options
+DEPTH_MAX_WORKER = -2
+DEPTH_MULTI_SINGLE = -3
+DEPTH_MULTI = -1
+
+# ----- JOB STATE IDs -----
+JOB_FINISHED = 3
+JOB_PENDING = 0
+JOB_RUNNING = 1
+
+DOWNSCALE_LIMIT = 0
+WAIT_CLUSTER_SCALING = 10
+FLAVOR_HIGH_MEM = "hmf"
+
+DATABASE_FILE = AUTOSCALING_FOLDER + IDENTIFIER + "_database.json"
+DATA_LONG_TIME = 7
+DATABASE_WORKER_PATTERN = " + ephemeral"
+
+HOME = str(Path.home())
+PLAYBOOK_DIR = HOME + "/playbook"
+PLAYBOOK_VARS_DIR = HOME + "/playbook/vars"
+COMMON_CONFIGURATION_YML = PLAYBOOK_VARS_DIR + "/common_configuration.yml"
+ANSIBLE_HOSTS_FILE = PLAYBOOK_DIR + "/ansible_hosts"
+INSTANCES_YML = PLAYBOOK_VARS_DIR + "/instances.yml"
+SCHEDULER_YML = PLAYBOOK_VARS_DIR + "/scheduler_config.yml"
+BASIC_MODE = "basic"
+APPROACH_MODE = "approach"
+ADAPTIVE_MODE = "adaptive"
+MAX_MODE = "max"
+MIN_MODE = "min"
+MULTI_MODE = "multi"
+FLAVOR_MODE = "flavor"
+DEFAULT_MODE = "default"
+REACTIVE_MODE = "reactive"
+SEQUENCE_MODE = "sequence"
