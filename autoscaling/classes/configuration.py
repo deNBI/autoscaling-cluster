@@ -42,6 +42,7 @@ class Configuration:
     ignore_workers: list[str] = field(default_factory=list)
     pending_jobs_percent: float = field(default=1.0)
     resource_sorting: bool = field(default=False)
+    systemd_start: bool = field(default=False)
 
     def __init__(self, **kwargs):
         self.mode_configs = {

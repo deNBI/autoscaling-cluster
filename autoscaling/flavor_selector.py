@@ -1,6 +1,12 @@
+import math
+
 from classes.config_modes import BasicMode
+from classes.configuration import Configuration
 from classes.flavor_availability import FlavorAvailability
+from constants import FLAVOR_GPU_ONLY, FLAVOR_GPU_REMOVE, FLAVOR_HIGH_MEM
 from logger import setup_custom_logger
+from simplevm_api import get_usable_flavors_from_api
+from utils import reduce_flavor_memory
 
 logger = setup_custom_logger(__name__)
 
@@ -79,3 +85,119 @@ def translate_metrics_to_flavor(
         )
 
     return None
+
+
+def __get_flavor_available_count(flavor_data:list[FlavorAvailability], flavor_name:str):
+    """
+    Return the number of available workers with this flavor.
+    :param flavor_data:
+    :param flavor_name:
+    :return: maximum of new possible workers with this flavor
+    """
+    flavor_tmp = __get_flavor_by_name(flavor_data, flavor_name)
+    if flavor_tmp:
+        return flavor_tmp.available_count
+    return 0
+
+
+def __get_flavor_by_name(flavor_data:list[FlavorAvailability], flavor_name:str) -> FlavorAvailability:
+    """
+    Return flavor object by flavor name.
+    :param flavor_data:
+    :param flavor_name:
+    :return: flavor data
+    """
+    for flavor_tmp in flavor_data:
+        if flavor_tmp.flavor.name == flavor_name:
+            return flavor_tmp
+    return None
+
+def usable_flavor_data(flavor_data:list[FlavorAvailability],config:Configuration) -> int:
+    """
+    Calculate the number of usable flavors, based on configuration.
+    :param flavor_data:
+    :return: number of usable flavors
+    """
+    fv_cut = int(config.active_mode.flavor_restriction)
+    # modify flavor count by current version
+    flavors_available = len(flavor_data)
+    logger.debug("flavors_available %s fv_cut %s", flavors_available, fv_cut)
+    if 0 < fv_cut < 1:
+        fv_cut = math.ceil(flavors_available * fv_cut)
+    if 1 <= fv_cut < flavors_available:
+        flavors_usable = fv_cut
+    else:
+        flavors_usable = flavors_available
+        if fv_cut != 0:
+            logger.error("wrong flavor cut value")
+    logger.debug("found %s flavors %s usable ", flavors_available, flavors_usable)
+    if flavors_usable == 0 and flavors_available > 0:
+        flavors_usable = 1
+    return flavors_usable
+
+def flavor_mod_gpu(flavors_data:list[FlavorAvailability],config:Configuration) -> list[FlavorAvailability]:
+    """
+    Modify flavor data according to gpu option.
+    :param flavors_data: flavor data
+    :return: changed flavor data
+    """
+    flavors_data_mod = []
+    removed_flavors = []
+    flavor_gpu = config.active_mode.flavor_gpu
+    # modify flavors by gpu
+    for fv_data in flavors_data:
+        # use only gpu flavors
+        if flavor_gpu == FLAVOR_GPU_ONLY and fv_data.flavor.gpu == 0:
+            removed_flavors.append(fv_data.flavor.name)
+        # remove all gpu flavors
+        elif flavor_gpu == FLAVOR_GPU_REMOVE and fv_data.flavor.gpu != 0:
+            removed_flavors.append(fv_data.flavor.name])
+        else:
+            flavors_data_mod.append(fv_data)
+
+    if removed_flavors:
+        logger.debug("unlisted flavors by GPU config option: %s", removed_flavors)
+    return flavors_data_mod
+
+def get_usable_flavors(config:Configuration,quiet:bool, cut:bool):
+    """
+    Receive flavor information from portal.
+        - the largest flavor on top
+        - memory in GB (real_memory/1024)
+    :param quiet: boolean - print flavor data
+    :param cut: boolean - cut flavor information according to configuration
+    :return: available flavors as json
+    """
+    flavors_data=get_usable_flavors_from_api()
+    flavors_info=[FlavorAvailability(flavor=data["flavor"],used_count=data["used_count"],available_count=data["available_count"],real_available_count_openstack=data["real_available_count_openstack"]] for data in flavors_data)]
+    flavors_info=sorted(flavors_info,key=lambda fl:fl.flavor.credits_costs_per_hour,fl.flavor.ram_gib,fl.flavor.vcpus,fl.flavor.ephemeral_disk,reverse=True)
+    counter = 0
+    flavors_data:list[FlavorAvailability] = flavor_mod_gpu(flavors_data=flavors_info)
+    flavors_data_mod:list[FlavorAvailability] = []
+    if cut:
+        flavors_usable:int = usable_flavor_data(flavors_data)
+    else:
+        flavors_usable:int = len(flavors_data)
+
+    for fd in flavors_data:
+
+                if (
+                    config.active_mode.limit_flavor_usage
+                    and fd.flavor.type.shortcut == FLAVOR_HIGH_MEM
+                    and fd.flavor.name in  config.active_mode.limit_flavor_usage
+                ):
+                    #TODO could happen directly via init with config injection
+                    fd.set_custom_limit(custom_limit=config.active_mode.limit_flavor_usage[fd.flavor.name])
+
+                # --------------
+                if counter <= flavors_usable:
+                    flavors_data_mod.append(fd)
+                    counter +=1
+                else:
+                    break
+
+
+                if not quiet:
+                    fd.log_info()
+
+    return flavors_data_mod

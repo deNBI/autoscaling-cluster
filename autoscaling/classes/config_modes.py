@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict
 
 
 @dataclass
@@ -10,7 +10,7 @@ class BasicMode:
     limit_workers: int = 0
     scale_force: float = 0.6
     scale_delay: int = 60
-    limit_flavor_usage: list[str] = field(default_factory=list)
+    limit_flavor_usage: Dict[str, int] = field(default_factory=dict)
     worker_cool_down: int = 60
     worker_weight: float = 0.0
     smoothing_coefficient: float = 0.0
