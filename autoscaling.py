@@ -1676,7 +1676,6 @@ def get_usable_flavors(quiet, cut):
                 # self selected high memory limit
                 if (
                     config_mode["limit_flavor_usage"]
-                    and fd["flavor"]["type"]["shortcut"] == FLAVOR_HIGH_MEM
                     and fd["flavor"]["name"] in config_mode["limit_flavor_usage"]
                 ):
                     user_fv_limit = int(
