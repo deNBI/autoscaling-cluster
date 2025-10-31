@@ -33,7 +33,7 @@ import pandas as pd
 import requests
 import yaml
 
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
 OUTDATED_SCRIPT_MSG = (
     "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
     "-  please download the current version and run it again!"
