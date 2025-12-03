@@ -41,7 +41,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "2.1.0"
+AUTOSCALING_VERSION = "2.2.0"
 SCALING_TYPE = "autoscaling"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
@@ -80,7 +80,7 @@ NODE_MIX = "MIX"
 NODE_IDLE = "IDLE"
 NODE_DRAIN = "DRAIN"
 NODE_DOWN = "DOWN"
-NODE_DUMMY = "bibigrid-worker-autoscaling_dummy"
+NODE_DUMMY = "bibigrid-worker-autoscaling-dummy"
 NODE_DUMMY_REQ = True
 WORKER_SCHEDULING = "SCHEDULING"
 WORKER_PLANNED = "PLANNED"
