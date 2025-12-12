@@ -41,7 +41,7 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "2.2.0"
+AUTOSCALING_VERSION = "2.3.0"
 SCALING_TYPE = "autoscaling"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
@@ -53,7 +53,7 @@ HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 400
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
 SCALING_SCRIPT_FILE = AUTOSCALING_FOLDER + "scaling.py"
-
+REQUEST_TIMEOUT=60
 IDENTIFIER = "autoscaling"
 
 FILE_CONFIG = IDENTIFIER + "_config.yaml"
@@ -1427,7 +1427,7 @@ def get_cluster_data():
             "scaling_type": SCALING_TYPE,
             "version": AUTOSCALING_VERSION,
         }
-        response = requests.post(url=get_url_info_cluster(), json=json_data)
+        response = requests.post(url=get_url_info_cluster(), json=json_data,timeout=REQUEST_TIMEOUT)
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
@@ -1630,6 +1630,7 @@ def get_usable_flavors(quiet, cut):
     try:
         res = requests.post(
             url=get_url_info_flavors(),
+            timeout=REQUEST_TIMEOUT,
             json={
                 "password": __get_cluster_password(),
                 "version": AUTOSCALING_VERSION,
@@ -4160,7 +4161,7 @@ def multiscale(flavor_data):
 def __cloud_api_(portal_url_scale, worker_data):
     logger.debug(f"---Scaling -- {portal_url_scale}\n\n\t {worker_data}")
     worker_data.update({"scaling_type": SCALING_TYPE})
-    response = requests.post(url=portal_url_scale, json=worker_data)
+    response = requests.post(url=portal_url_scale, json=worker_data,timeout=REQUEST_TIMEOUT)
     logger.debug(response.raise_for_status())
     logger.info("response code: %s, message: %s", response.status_code, response.text)
 
