@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from logger import setup_custom_logger
-from utils import convert_gb_to_mib
+from utils import convert_gb_to_mib, convert_mib_to_gib
 
 logger = setup_custom_logger(__name__)
 
@@ -18,16 +19,18 @@ class Flavor:
     ram_gib: int  # RAM in GiB
     vcpus: int  # Number of vCPUs
     root_disk: int  # Root disk size
-    gpu: int  # Number of GPUs
+    gpu: int = 0  # Number of GPUs
     ephemeral_disk: int  # Ephemeral disk size (GB)
     temporary_disk: int = field(init=False)  # Wird nachträglich befüllt
-    type = FlavorType
+    type: Optional[FlavorType] = None  # Optional type field
 
     def __post_init__(self):
         # Rechne ephemeral_disk (in GB) um und speichere als MiB
         self.temporary_disk = (
             convert_gb_to_mib(self.ephemeral_disk) if self.ephemeral_disk > 0 else 0
         )
+        if self.ram_gib is None:
+            self.ram_gib = convert_mib_to_gib(value=self.ram) if self.ram else 0
 
     def log_info(self, prefix="flavor"):
         logger.info(

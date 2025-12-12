@@ -1,8 +1,10 @@
+import json
 import sys
 from http import HTTPStatus
 from pprint import pformat
 
 import requests
+import utils
 from constants import AUTOSCALING_VERSION, SCALING_TYPE
 from logger import setup_custom_logger
 from utils import get_cluster_password, get_wrong_password_msg, sleep_on_server_error
@@ -13,10 +15,11 @@ from config import Configuration
 logger = setup_custom_logger(__name__)
 
 
-def get_usable_flavors_from_api():
+def get_usable_flavors_from_api(config: Configuration):
 
     response = requests.post(
-        url=get_url_info_flavors(),
+        url=config.portal_flavor_infos_link,
+        timeout=10000,
         json={
             "password": get_cluster_password(),
             "version": AUTOSCALING_VERSION,
@@ -28,8 +31,7 @@ def get_usable_flavors_from_api():
         version_check_scale_data(res["AUTOSCALING_VERSION"])
         logger.debug(pformat(res))
         return res
-    else:
-        handle_code_unauthorized(res=response)
+    handle_code_unauthorized(res=response)
 
 
 def get_cluster_data(config: Configuration):
@@ -58,8 +60,7 @@ def get_cluster_data(config: Configuration):
             version_check_scale_data(res["AUTOSCALING_VERSION"])
             logger.debug(pformat(res))
             return res
-        else:
-            handle_code_unauthorized(res=response)
+        handle_code_unauthorized(res=response)
 
     except requests.exceptions.HTTPError as e:
         logger.error(e.response.text)
@@ -74,6 +75,22 @@ def get_cluster_data(config: Configuration):
     except Exception as e:
         logger.error("error by accessing cluster data %s", e)
     return None
+
+
+def update_password_via_response(response: requests.Response):
+    try:
+        response_json = response.json()
+        if "password" in response_json:
+            password = response_json["password"]
+            utils.save_cluster_password(password=password)
+
+            return True
+        else:
+            logger.debug("No password found in the response.")
+            return False
+    except json.JSONDecodeError:
+        logger.debug("Invalid JSON response.")
+        return False
 
 
 def handle_code_unauthorized(res):

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import time
 from http import HTTPStatus
@@ -6,9 +7,11 @@ from http import HTTPStatus
 import requests
 import yaml
 from constants import (
+    AUTOSCALING_FOLDER,
     AUTOSCALING_VERSION,
     CLUSTER_PASSWORD_FILE,
     FILE_CONFIG_YAML,
+    FILE_PID,
     WAIT_CLUSTER_SCALING,
 )
 from logger import setup_custom_logger
@@ -98,6 +101,15 @@ def convert_gb_to_mib(value):
     :return:
     """
     return int(value) * 1024
+
+
+def convert_mib_to_gib(value):
+    """
+    Convert GB value to MiB.
+    :param value:
+    :return:
+    """
+    return int(value) // 1024
 
 
 def convert_mib_to_gb(value):
@@ -212,14 +224,36 @@ def write_json_file(save_file, content):
         sys.exit(1)
 
 
+def save_cluster_password(password: str):
+    logger.debug(f"Set New Password: {password}")
+    write_json_file(CLUSTER_PASSWORD_FILE, {"password": password})
+
+
+def create_pid_file():
+    """
+    create pid file, exit if file exist
+    :return: pid file
+    """
+    pid = str(os.getpid())
+    logger.debug("start with pid %s", pid)
+    pidfile_ = AUTOSCALING_FOLDER + FILE_PID
+    if os.path.isfile(pidfile_):
+        logger.critical(
+            "please terminate the running autoscaling process,\npid file already exist %s, exit\n",
+            pidfile_,
+        )
+        sys.exit(1)
+    open(pidfile_, "w", encoding="utf8").write(pid)
+    return pidfile_
+
+
 def set_cluster_password():
     """
     Save cluster password to CLUSTER_PASSWORD_FILE, the password can be entered when prompted.
     :return:
     """
     password_ = input("enter cluster password (copy&paste): ")
-    tmp_pw = {"password": password_}
-    write_json_file(CLUSTER_PASSWORD_FILE, tmp_pw)
+    save_cluster_password(password=password_)
 
 
 def update_file_via_url(file_location, url, filename):
@@ -254,3 +288,8 @@ def sleep_on_server_error(config: Configuration):
         sleep_time = WAIT_CLUSTER_SCALING
     logger.error("server error, sleep %s seconds", sleep_time)
     time.sleep(sleep_time)
+
+
+def sleep_cluster_waiting():
+    logger.debug("Cluster Scaling waiting...")
+    time.sleep(WAIT_CLUSTER_SCALING)
