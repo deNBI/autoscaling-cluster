@@ -4,4 +4,4 @@ numpy==2.4.0
 pandas==3.0.0
 PyYAML==6.0.3
 requests==2.32.4
-setuptools==80.10.1
+setuptools==82.0.0
