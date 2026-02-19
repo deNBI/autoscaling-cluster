@@ -53,7 +53,7 @@ HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 400
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
 SCALING_SCRIPT_FILE = AUTOSCALING_FOLDER + "scaling.py"
-REQUEST_TIMEOUT=60
+REQUEST_TIMEOUT = 60
 IDENTIFIER = "autoscaling"
 
 FILE_CONFIG = IDENTIFIER + "_config.yaml"
@@ -1427,7 +1427,9 @@ def get_cluster_data():
             "scaling_type": SCALING_TYPE,
             "version": AUTOSCALING_VERSION,
         }
-        response = requests.post(url=get_url_info_cluster(), json=json_data,timeout=REQUEST_TIMEOUT)
+        response = requests.post(
+            url=get_url_info_cluster(), json=json_data, timeout=(30, REQUEST_TIMEOUT)
+        )
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
@@ -1630,7 +1632,7 @@ def get_usable_flavors(quiet, cut):
     try:
         res = requests.post(
             url=get_url_info_flavors(),
-            timeout=REQUEST_TIMEOUT,
+            timeout=(30, REQUEST_TIMEOUT),
             json={
                 "password": __get_cluster_password(),
                 "version": AUTOSCALING_VERSION,
@@ -3598,7 +3600,7 @@ def __calculate_scale_up_data(
                     logger.error(
                         "flavor_default is active, but selected flavor not meet the requirements for minimal flavor"
                     )
-                    
+
             else:
                 logger.error(
                     "flavor_default is active, selected flavor is not available"
@@ -4161,7 +4163,9 @@ def multiscale(flavor_data):
 def __cloud_api_(portal_url_scale, worker_data):
     logger.debug(f"---Scaling -- {portal_url_scale}\n\n\t {worker_data}")
     worker_data.update({"scaling_type": SCALING_TYPE})
-    response = requests.post(url=portal_url_scale, json=worker_data,timeout=REQUEST_TIMEOUT)
+    response = requests.post(
+        url=portal_url_scale, json=worker_data, timeout=(30, REQUEST_TIMEOUT)
+    )
     logger.debug(response.raise_for_status())
     logger.info("response code: %s, message: %s", response.status_code, response.text)
 
@@ -4470,7 +4474,7 @@ def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
     scaling_script_url = __get_scaling_script_url()
     if update_scaling_script(url=scaling_script_url, filename=SCALING_SCRIPT_FILE):
-
+        logger.debug("Run Scaling script--.")
         # Run the scaling.py script
         command = ["python3", SCALING_SCRIPT_FILE, "-p", __get_cluster_password()]
         subprocess.run(command)
@@ -4550,7 +4554,7 @@ def download_file(url, filename):
     try:
         logger.info(f"Downloading {filename} script from: {url}")
 
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=(30, REQUEST_TIMEOUT))
         response.raise_for_status()  # Raise HTTPError for bad responses
 
         with open(filename, "wb") as f:
@@ -5604,8 +5608,8 @@ def version_check(version):
 
 def get_latest_release_tag():
     release_url = REPO_API_LINK + "releases/latest"
-    response = requests.get(release_url)
-    latest_release = response.json()
+    response = requests.get(release_url, timeout=(30, REQUEST_TIMEOUT))
+    latest_release = (response.json(),)
     logger.info(f"latest release: {latest_release}")
 
     latest_tag = latest_release["tag_name"]
@@ -5767,7 +5771,7 @@ def update_file(file_location, url, filename):
     """
     try:
         logger.debug("download new  %s", filename)
-        res = requests.get(url, allow_redirects=True)
+        res = requests.get(url, allow_redirects=True, timeout=(30, REQUEST_TIMEOUT))
         if res.status_code == HTTP_CODE_OK:
             open(file_location, "wb").write(res.content)
             return True
