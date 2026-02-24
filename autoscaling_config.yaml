@@ -39,7 +39,7 @@ scaling:
       forecast_occupied_worker: False
       flavor_restriction: 0
       flavor_default: "de.NBI medium"
-      flavor_ephemeral: True
+      flavor_ephemeral: False
       flavor_gpu: 1
       flavor_depth: -1
       large_flavors: False
