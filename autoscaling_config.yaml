@@ -19,9 +19,12 @@ scaling:
       limit_memory: 0
       limit_worker_starts: 0
       limit_workers: 0
+      allowed_flavor_names: []  # empty list = allow all flavors
+      #  - de.NBI highmem xlarge
+      #  - de.NBI highmem large
       limit_flavor_usage:
-      #        'de.NBI highmem xlarge': 16
-      #        'de.NBI highmem large': 20
+      #      -  'de.NBI highmem xlarge': 16
+      #      -  'de.NBI highmem large': 20
       scale_force: 0.6
       scale_delay: 60
       worker_cool_down: 60

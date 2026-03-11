@@ -1620,6 +1620,26 @@ def flavor_mod_gpu(flavors_data):
     return flavors_data_mod
 
 
+def filter_flavor_by_allowed_names(flavors_data):
+    allowed = set(config_mode.get("allowed_flavor_names", []))
+
+    if not allowed:
+        logger.debug("No allowed flavors specified – allowing all.")
+        return flavors_data
+
+    logger.info(f"Filtering flavors by allowed flavor names: {allowed}")
+
+    filtered = [f for f in flavors_data if f.get("flavor", {}).get("name") in allowed]
+
+    logger.debug(
+        "Flavor filtering reduced list from %d to %d",
+        len(flavors_data),
+        len(filtered),
+    )
+
+    return filtered
+
+
 def get_usable_flavors(quiet, cut):
     """
     Receive flavor information from portal.
@@ -1642,6 +1662,7 @@ def get_usable_flavors(quiet, cut):
 
         if res.status_code == HTTP_CODE_OK:
             flavors_data = res.json()
+            flavors_data = filter_flavor_by_allowed_names(flavors_data=flavors_data)
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
