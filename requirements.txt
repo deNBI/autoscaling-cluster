@@ -3,5 +3,5 @@ matplotlib==3.10.8
 numpy==2.4.4
 pandas==3.0.1
 PyYAML==6.0.3
-requests==2.33.0
+requests==2.33.1
 setuptools==82.0.1
