@@ -56,7 +56,10 @@ def setup_logger(
     # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
-    console_formatter = logging.Formatter("%(levelname)s: %(message)s")
+    console_formatter = logging.Formatter(
+        "%(asctime)s.%(msecs)03dZ - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
