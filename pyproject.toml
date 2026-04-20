@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoscaling-cluster"
+version = "3.0.0"
+description = "Autoscaling cluster management tool for compute clusters"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "deNBI", email = "support@denbi.de"}
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "Cython>=3.1.2",
+    "matplotlib>=3.6.2",
+    "numpy>=1.23.5",
+    "pandas>=1.5.2",
+    "PyYAML>=6.0",
+    "requests>=2.28.1",
+]
+
+[project.scripts]
+autoscaling = "autoscaling.main:main"
+
+[project.urls]
+Homepage = "https://github.com/deNBI/autoscaling-cluster"
+Documentation = "https://github.com/deNBI/autoscaling-cluster#readme"
+Repository = "https://github.com/deNBI/autoscaling-cluster.git"
+Issues = "https://github.com/deNBI/autoscaling-cluster/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autoscaling*"]
+
+[tool.setuptools]
+py-modules = ["autoscaling"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E722"]

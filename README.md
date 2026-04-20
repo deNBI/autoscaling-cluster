@@ -1,17 +1,61 @@
-# autoscaling cluster
+# Autoscaling Cluster Package
 
-## usage
-Autoscaling can be started as a service, which regularly checks the currently required workers in the background, or manually with appropriate parameters. The program files are located inside the folder `{HOME}\autoscaling`.
+[![PyPI version](https://badge.fury.io/py/autoscaling-cluster.svg)](https://badge.fury.io/py/autoscaling-cluster)
 
+A Python module for auto-scaling compute clusters with support for multiple schedulers (Slurm) and cloud providers.
 
-## install
-The program is developed and tested to work with SimpleVM. The predefined scheduler is slurm. Other schedulers are possible by integrating appropriate interfaces.
+## Features
 
-The setup inside the SimpleVM cluster is done with a separate [ansible role](https://github.com/patricS4/autoscaling-config-ansible) during the cluster generation.
+- Modular architecture with clean separation of concerns
+- Slurm scheduler integration
+- Portal API integration for cluster management
+- Job forecasting using history data
+- Multiple scaling modes for different use cases
+- Command-line interface for manual control
 
-## start
-* download `autoscaling.py` and `autoscaling_config.yaml` to `${HOME}/autoscaling/`
-* define a new cluster password with `autoscaling -p`
+## Installation
+
+```bash
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Install the package
+pip install -e .
+```
+
+## Quick Start
+
+```bash
+# Show version
+autoscaling --version
+
+# Set cluster password
+autoscaling --password
+
+# Run rescale (auto-scaling)
+autoscaling --rescale
+
+# Display node data
+autoscaling --node-data
+
+# Display job data
+autoscaling --job-data
+
+# Display cluster data
+autoscaling --cluster-data
+
+# Interactive mode selection
+autoscaling --mode
+```
+
+## Usage
+
+Autoscaling can be started as a service, which regularly checks the currently required workers in the background, or manually with appropriate parameters.
+
+### Cluster Password
+
+A password is regenerated with each scaling operation and this new password is returned via the cloud API as a response. For the first start a manual entry of the initial password is necessary. A new password can be set with the `-password` parameter. The password is automatically saved in a file named `cluster_pw.json` inside the autoscaling folder.
 
 ### cluster password
 A password is regenerated with each scaling operation and this new password is returned via the cloud api as a response. For the first start a manual entry of the initial password is necessary. A new password can be set with the `-password`  parameter. The password is automatically saved in a file named `cluster_pw.json` inside the `autoscaling` folder.
@@ -252,45 +296,126 @@ Usually the smallest available flavor is used, alternatively, multiple jobs can 
 ###### replace large workers
 If smaller workers are sufficient for the jobs in the queue, the resource-guzzling workers are set to drain and deleted as soon as possible. In order to delete the workers, the program has to wait until they get the status `Idle` and are therefore "free". New smaller workers are started for the jobs in the queue.
 
-This option will set larger nodes than required by the jobs into drain state. Jobs can finish, but no new jobs will be started on the node. As soon as the node reaches the status `idle+drain`, it can be deleted. Large instances consume more resources and are more expensive, especially with high memory flavors.
+### Available Files
 
+* config parameters
+  * location: `${HOME}/autoscaling/autoscaling_config.yaml`
+  * the active mode is defined as `active_mode`
+* csv log data for visualization
+  * location: `${HOME}/autoscaling/autoscaling.csv`
+* program log messages
+  * `${HOME}/autoscaling/autoscaling.log`
+* pid file: prevents multiple instances from starting at the same time
+  * `${HOME}/autoscaling/autoscaling.pid`
+* password file: contains the current password of the cluster
+  * `${HOME}/autoscaling/cluster_pw.json`
 
-* `drain_large_nodes`: `False`
-  * Set large nodes to drain, if nodes with lower flavors are suitable for pending jobs.
-  * incompatible with large flavors
-  * `drain_only_hmf`: `False`
-    * The drain setting is restricted to high memory workers.
-  * `drain_delay`: `0`
-    * Select a drain type, how to react by workers without a matching pending job.
-    * `60` : positive value
-      * Wait a defined number of seconds until last usage with a suitable job.
-    * `0` : immediate drain
-      * May cause time-consuming worker restarts, if corresponding jobs are added frequently.
-    * `-1` : negative value, keep 50% + `|-1|` from this flavor during iteration
-      * Workers are set to drain in stages, but keep a fixed number active.
+### Visual Data
 
-###### scheduler settings
-* slurm configuration example
-  ```
-    scheduler_settings: |
-    PriorityType=priority/multifactor
-    PriorityFavorSmall=NO
-    PriorityWeightJobSize=100000
-    AccountingStorageTRES=cpu,mem,gres/gpu
-    PriorityWeightTRES=cpu=1000,mem=2000,gres/gpu=3000
-  ```
-* Select own scheduler settings, influence the job scheduling order for example over job priority.
-* Only updated if supported by the ansible playbook.
+The data from the csv file can be visualized. Memory is decisive for the costs, which is why the memory consumption is visualized with the respective worker state according to the scheduler. In this example, time analysis is active with the mode `multi`. We can see that around `15:30`, a lot of jobs are in pending, but no worker is started because these are mostly short jobs. Shortly thereafter, the workload drops and the workers are deleted after a defined time. The scale-down takes place in several stages.
 
-###### Python dependencies
+![memory usage](pictures/visual_example_01.png)
+![pending jobs](pictures/visual_example_02.png)
+
+#### Legend
+* *autoscaling*: Start of the autoscaling program.
+* *rescale*: Start of the re-scaling and re-configuring of the cluster.
+* *allocated by jobs*: Used memory from allocated Jobs.
+* *scale-up*: Mark when a scale-up process is finished.
+* *scale-down*: Mark when a scale-down process is completed.
+* *error*: There is an error by current workers or API Response.
+* *scale-down drain*: Additional scale-down marker, an early scale-down by drain workers is finished.
+* *un-drain worker*: If Workers are marked as drain and not deleted, they can be reactivated if a new job requires these resources.
+* *scale-up (api)*: A scale-up request was sent to the API interface. Several requests can be sent one after the other, depending on the `flavor_depth` setting.
+* *insufficient resources*: The generated workers are reduced because of missing resources according to flavor data.
+* *pending jobs*: Number of pending jobs in the scheduler queue.
+
+### Mode Selection
+
+There are already predefined modes in the configuration file.
+To activate a specific mode, set the `active_mode` variable to a desired mode name inside the configuration file. An interactive selection inside the program is possible with `autoscaling --mode`.
+
+### Configuration
+
+Config parameters are located at `${HOME}/autoscaling/autoscaling_config.yaml`
+Modes can be edited and defined. Start another mode with `autoscaling --mode <mode>`.
+
+#### Predefined Modes
+
+The predefined modes reflect use cases of different user needs.
+
+* **basic**: Basic scaling based on pending jobs
+* **approach**: With worker weight limiting (max 10 workers per iteration)
+* **sequence**: By job sequence analysis with history
+* **adaptive**: Balanced approach with drain support
+* **multi**: Multiple flavor support
+* **reactive**: Light threshold mode
+* **flavor**: Per-flavor limiting
+* **maximum**: Only largest flavors
+* **minimum**: Minimum worker usage with drain replacement
+
+### Python Dependencies
 
 * python>=3.8
-* Slurm interface
-  * Pyslurm
-    * https://github.com/PySlurm/pyslurm/tree/slurm-20.11.8
-  * cython>=0.29.32
+* cython>=3.1.2
 * numpy>=1.23.5
 * pandas>=1.5.2
 * matplotlib>=3.6.2
 * pyyaml>=6.0
 * requests>=2.28.1
+
+## Development
+
+### Project Structure
+
+```
+autoscaling/
+├── __init__.py           # Package initialization
+├── main.py               # Main CLI entry point
+├── autoscaling.py        # Legacy wrapper
+├── config/               # Configuration management
+├── core/                 # Core scaling logic
+├── data/                 # Data models and fetchers
+├── api/                  # API clients
+├── scheduler/            # Scheduler interfaces
+├── forecasting/          # Job time prediction
+└── utils/                # Utility functions
+```
+
+### Running Tests
+
+```bash
+source .venv/bin/activate
+pytest tests/ -v
+```
+
+### CLI Options
+
+| Option | Long option | Argument | Meaning |
+|--------|-------------|----------|---------|
+| `-v` | `--version` | | Print version number |
+| `-h` | `--help` | | Print help information |
+| `-p` | `--password` | | Set cluster password |
+| `-rsc` | `--rescale` | | Run scaling with ansible playbook |
+| `-s` | `--service` | | Run as service |
+| `-nd` | `--node-data` | | Display node data |
+| `-jd` | `--job-data` | | Display job data |
+| `-fd` | `--flavor-data` | | Display flavor data |
+| `-cd` | `--cluster-data` | | Display cluster data from API |
+| `-d` | `--drain` | | Set manual nodes to drain |
+| `-vis` | `--visualize` | [TIME_RANGE] | Visualize log data |
+| `-m` | `--mode` | | Interactive mode selection |
+| `-iw` | `--ignore-workers` | | Interactive worker selection |
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
