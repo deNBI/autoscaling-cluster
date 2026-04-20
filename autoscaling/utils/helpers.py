@@ -5,7 +5,6 @@ Helper functions and utilities.
 import hashlib
 import logging
 import os
-import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -129,6 +128,10 @@ def generate_hash(file_path: str) -> str:
     return None
 
 
+class PasswordError(Exception):
+    """Exception for password-related errors."""
+
+
 def get_cluster_password(password_file: str = None) -> str:
     """
     Read cluster password from JSON file.
@@ -140,7 +143,7 @@ def get_cluster_password(password_file: str = None) -> str:
         Password string
 
     Raises:
-        SystemExit: If password file is missing or invalid
+        PasswordError: If password file is missing or invalid
     """
     import json
 
@@ -153,12 +156,12 @@ def get_cluster_password(password_file: str = None) -> str:
         cluster_pw = pw_json.get("password")
         if not cluster_pw:
             logger.error("No cluster password found in %s", password_file)
-            sys.exit(1)
+            raise PasswordError("No cluster password found")
         logger.debug("Loaded password from %s", password_file)
         return cluster_pw
     except (IOError, json.JSONDecodeError) as exc:
         logger.error("Error reading password file %s: %s", password_file, exc)
-        sys.exit(1)
+        raise PasswordError(f"Failed to read password file: {exc}")
 
 
 def set_cluster_password(password: str, password_file: str = None) -> bool:

@@ -26,7 +26,12 @@ from autoscaling.data.database import JobDatabase
 from autoscaling.data.fetcher import DataFetcher
 from autoscaling.forecasting.predictor import JobPredictor
 from autoscaling.scheduler.slurm import SlurmInterface
-from autoscaling.utils.helpers import FILE_CONFIG, get_autoscaling_folder
+from autoscaling.utils.helpers import (
+    FILE_CONFIG,
+    PasswordError,
+    get_autoscaling_folder,
+    get_cluster_password,
+)
 from autoscaling.utils.logger import setup_logger
 
 logger = logging.getLogger(__name__)
@@ -37,23 +42,6 @@ LOG_FILE = AUTOSCALING_FOLDER + "autoscaling.log"
 LOG_CSV = AUTOSCALING_FOLDER + "autoscaling.csv"
 CLUSTER_PASSWORD_FILE = AUTOSCALING_FOLDER + "cluster_pw.json"
 DATABASE_FILE = AUTOSCALING_FOLDER + "autoscaling_database.json"
-
-
-def get_cluster_password() -> str:
-    """Load cluster password from file."""
-    import json
-
-    try:
-        with open(CLUSTER_PASSWORD_FILE, "r", encoding="utf8") as f:
-            pw_json = json.load(f)
-        cluster_pw = pw_json.get("password")
-        if not cluster_pw:
-            logger.error("No cluster password found in %s", CLUSTER_PASSWORD_FILE)
-            sys.exit(1)
-        return cluster_pw
-    except (IOError, json.JSONDecodeError) as exc:
-        logger.error("Error reading password file: %s", exc)
-        sys.exit(1)
 
 
 class AutoScalingCLI:
@@ -69,11 +57,18 @@ class AutoScalingCLI:
         self.database = None
         self.predictor = None
 
-    def setup(self) -> bool:
-        """Setup the CLI with configuration and dependencies."""
+    def setup(self, config_path: str = None) -> bool:
+        """Setup the CLI with configuration and dependencies.
+
+        Args:
+            config_path: Optional path to custom configuration file
+        """
         try:
+            # Store config path for later use (e.g., hash generation)
+            self._config_path = config_path
+
             # Load configuration
-            self.config = load_config()
+            self.config = load_config(config_path)
 
             # Get cluster ID
             self.cluster_id = read_cluster_id()
@@ -140,8 +135,17 @@ class AutoScalingCLI:
         engine.multiscale(flavor_data)
 
     def _get_config_hash(self) -> str:
-        """Get configuration file hash."""
+        """Get configuration file hash.
+
+        If a custom config path was used, hash that file.
+        Otherwise, hash the default config in the autoscaling folder.
+        """
         from autoscaling.utils.helpers import generate_hash
+
+        # Use config path from setup if available, otherwise default
+        config_path = getattr(self, "_config_path", None)
+        if config_path:
+            return generate_hash(config_path)
 
         autoscaling_folder = get_autoscaling_folder()
         config_path = autoscaling_folder + FILE_CONFIG
@@ -229,10 +233,11 @@ class AutoScalingCLI:
         password = getpass.getpass("Enter cluster password: ")
         from autoscaling.utils.helpers import set_cluster_password
 
-        if set_cluster_password(password):
+        try:
+            set_cluster_password(password)
             print("Password set successfully")
-        else:
-            print("Failed to set password")
+        except Exception as e:
+            print(f"Failed to set password: {e}")
             sys.exit(1)
 
     def cmd_rescale(self) -> None:
@@ -273,19 +278,32 @@ class AutoScalingCLI:
 
     def cmd_cluster_data(self) -> None:
         """Display cluster data from API."""
+        from autoscaling.api import ApiAuthError, ApiError
+
         try:
             password = get_cluster_password()
-        except SystemExit:
+        except (ApiAuthError, ApiError, PasswordError) as e:
             import getpass
 
+            print(f"Password error: {e}")
+            password = getpass.getpass("Enter cluster password: ")
+        except Exception as e:
+            import getpass
+
+            print(f"Error getting password: {e}")
             password = getpass.getpass("Enter cluster password: ")
 
-        cluster_data = self.api_client.get_cluster_data(password)
-        if cluster_data:
-            workers = cluster_data.get("workers", [])
-            print(f"Cluster workers: {len(workers)}")
-            for w in workers[:20]:
-                print(f"  {w.get('hostname')}: {w.get('status')}")
+        try:
+            cluster_data = self.api_client.get_cluster_data(password)
+            if cluster_data:
+                workers = cluster_data.get("workers", [])
+                print(f"Cluster workers: {len(workers)}")
+                for w in workers[:20]:
+                    print(f"  {w.get('hostname')}: {w.get('status')}")
+        except (ApiAuthError, ApiError) as e:
+            print(f"API error: {e}")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
 
     def cmd_drain(self) -> None:
         """Drain selected workers."""
@@ -467,6 +485,14 @@ def create_parser() -> argparse.ArgumentParser:
         help="Interactive worker selection for ignoring",
     )
 
+    # Config flag
+    parser.add_argument(
+        "-c",
+        "--config",
+        metavar="CONFIG_PATH",
+        help="Path to custom configuration file",
+    )
+
     return parser
 
 
@@ -492,7 +518,8 @@ def main() -> int:
         return 0
 
     # Setup dependencies (required for most commands)
-    if not cli.setup():
+    config_path = args.config if hasattr(args, "config") and args.config else None
+    if not cli.setup(config_path):
         logger.error("Failed to setup CLI")
         return 1
 

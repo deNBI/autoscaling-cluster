@@ -35,9 +35,10 @@ def setup_logger(
     # Remove existing handlers
     logger.handlers = []
 
-    # Create formatter
+    # Create formatter with ISO8601 timestamp
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "%(asctime)s.%(msecs)03dZ - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
     # File handler with rotation

@@ -4,7 +4,6 @@ API client for cloud portal communication.
 
 import json
 import logging
-import sys
 import time
 from typing import Any, Optional
 
@@ -23,7 +22,15 @@ from autoscaling.utils.helpers import (
 logger = logging.getLogger(__name__)
 
 
-class PortalAPIError(Exception):
+class ApiError(Exception):
+    """Base exception for API-related errors."""
+
+
+class ApiAuthError(ApiError):
+    """Authentication error when calling the API."""
+
+
+class PortalAPIError(ApiError):
     """Exception for portal API errors."""
 
 
@@ -82,12 +89,12 @@ class PortalClient:
                 self._handle_unauthorized(res=res)
             else:
                 self._sleep_on_server_error()
+            raise ApiError("Failed to receive cluster data")
         except OSError as error:
             logger.error("OS error: %s", error)
-        except Exception as e:
-            logger.error("Error accessing cluster data: %s", e)
+            raise ApiError(f"OS error: {error}")
 
-        return None
+        raise ApiError("Failed to receive cluster data")
 
     def scale_up(
         self, worker_data: dict[str, Any], password: str
@@ -211,11 +218,11 @@ class PortalClient:
             cluster_pw = pw_json.get("password")
             if not cluster_pw:
                 logger.error("No cluster password found in %s", CLUSTER_PASSWORD_FILE)
-                sys.exit(1)
+                raise ApiAuthError("No cluster password found")
             return cluster_pw
         except (IOError, json.JSONDecodeError) as exc:
             logger.error("Error reading password file: %s", exc)
-            sys.exit(1)
+            raise ApiAuthError(f"Failed to read password file: {exc}")
 
     def _get_url_scale_up(self) -> str:
         """Get scale-up API URL."""
@@ -245,7 +252,7 @@ class PortalClient:
 
             if "Invalid Password" in error_msg:
                 logger.error("The password seems to be wrong.")
-                sys.exit(1)
+                raise ApiAuthError("Invalid cluster password")
             elif "Wrong script version!" in error_msg:
                 latest_version = res.json().get("latest_version")
                 logger.warning("Outdated version. Latest: %s", latest_version)

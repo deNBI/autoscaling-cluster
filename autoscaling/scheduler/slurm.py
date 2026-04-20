@@ -3,8 +3,8 @@ Slurm scheduler interface implementation.
 """
 
 import logging
-import os
 import re
+import subprocess
 from subprocess import PIPE, Popen
 from typing import Any, Optional
 
@@ -383,7 +383,22 @@ class SlurmInterface(SchedulerInterface):
             w_key: Node name/hostname
         """
         logger.debug("Draining node %s", w_key)
-        os.system(f"sudo scontrol update nodename={w_key} state=drain reason=REPLACE")
+        try:
+            subprocess.run(
+                [
+                    "sudo",
+                    "scontrol",
+                    "update",
+                    f"nodename={w_key}",
+                    "state=drain",
+                    "reason=REPLACE",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to drain node %s: %s", w_key, e.stderr)
 
     def set_node_to_resume(self, w_key: str) -> None:
         """
@@ -393,4 +408,12 @@ class SlurmInterface(SchedulerInterface):
             w_key: Node name/hostname
         """
         logger.debug("Resuming node %s", w_key)
-        os.system(f"sudo scontrol update nodename={w_key} state=resume")
+        try:
+            subprocess.run(
+                ["sudo", "scontrol", "update", f"nodename={w_key}", "state=resume"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to resume node %s: %s", w_key, e.stderr)

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
+from autoscaling.api import ApiAuthError
 from autoscaling.api.client import PortalClient
 
 
@@ -49,7 +50,7 @@ class TestPortalClient:
         mock_response.json.return_value = {"message": "Invalid Password"}
 
         with patch("autoscaling.api.client.requests.post", return_value=mock_response):
-            with pytest.raises(SystemExit):
+            with pytest.raises(ApiAuthError):
                 client.get_cluster_data("wrong_password")
 
     def test_scale_up_success(self):
