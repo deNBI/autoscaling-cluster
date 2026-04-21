@@ -110,7 +110,7 @@ class ScalingEngine:
 
         # Only scale down if we have free workers
         free_workers = self.context.worker_free
-        if free_workers <= 0:
+        if not free_workers:
             return ScalingAction.noop_action("No free workers to scale down")
 
         # Get workers to scale down
@@ -267,10 +267,10 @@ class ScalingEngine:
         # Exclude draining workers
         draining = set(self.context.worker_drain)
 
-        # Get free workers
+        # Get free workers (workers that are not in use and not draining)
         free_workers = [
-            w for w in all_workers
-            if w not in draining and w not in self.context.worker_in_use
+            w for w in self.context.worker_free
+            if w not in draining
         ]
 
         return free_workers

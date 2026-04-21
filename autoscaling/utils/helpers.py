@@ -2,10 +2,13 @@
 Helper utilities for autoscaling.
 """
 import hashlib
+import json
 import os
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+
+import yaml
 
 
 def get_time() -> int:
@@ -250,3 +253,105 @@ def parse_time(time_str: str) -> int:
         total_seconds += int(parts[0])
 
     return total_seconds
+
+
+def read_json_file(file_path: str) -> Optional[dict]:
+    """
+    Read JSON content from file.
+
+    Args:
+        file_path: Path to the JSON file
+
+    Returns:
+        JSON content as dictionary or None on error
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError):
+        return None
+
+
+def save_json_file(file_path: str, content: dict) -> bool:
+    """
+    Save JSON content to file.
+
+    Args:
+        file_path: Path to the JSON file
+        content: Content to save
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(content, f, ensure_ascii=False, indent=4)
+        return True
+    except IOError:
+        return False
+
+
+def read_yaml_file(file_path: str) -> Optional[dict]:
+    """
+    Read YAML data from file.
+
+    Args:
+        file_path: Path to the YAML file
+
+    Returns:
+        YAML content as dictionary or None on error
+    """
+    try:
+        with open(file_path, "r", encoding="utf8") as stream:
+            return yaml.safe_load(stream)
+    except (yaml.YAMLError, OSError):
+        return None
+
+
+def write_yaml_file(file_path: str, data: dict) -> bool:
+    """
+    Write YAML data to file.
+
+    Args:
+        file_path: Path to the YAML file
+        data: Data to write
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with open(file_path, "w", encoding="utf8") as target:
+            yaml.dump(data, target)
+        return True
+    except yaml.YAMLError:
+        return False
+
+
+def get_cluster_password(password_file: str = "cluster_pw.json") -> Optional[str]:
+    """
+    Read cluster password from file.
+
+    Args:
+        password_file: Path to password file
+
+    Returns:
+        Password string or None if not found
+    """
+    data = read_json_file(password_file)
+    if data:
+        return data.get("password")
+    return None
+
+
+def set_cluster_password(password: str, password_file: str = "cluster_pw.json") -> bool:
+    """
+    Save cluster password to file.
+
+    Args:
+        password: Password to save
+        password_file: Path to password file
+
+    Returns:
+        True if successful, False otherwise
+    """
+    return save_json_file(password_file, {"password": password})

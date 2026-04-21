@@ -424,3 +424,13 @@ class SlurmScheduler(SchedulerInterface):
             pass
 
         return total_seconds
+
+
+def __utc_datetime() -> datetime:
+    """Get current UTC datetime."""
+    return datetime.utcnow()
+
+
+def __timedelta(**kwargs) -> timedelta:
+    """Create a timedelta."""
+    return timedelta(**kwargs)

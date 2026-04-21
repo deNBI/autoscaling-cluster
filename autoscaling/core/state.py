@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+class Rescale(enum.Enum):
+    """
+    Rescaling types.
+    """
+
+    INIT = 0
+    CHECK = 1
+    NONE = 2
+
+
 class ScaleState(enum.Enum):
     """
     Possible program scaling states.
@@ -41,7 +51,7 @@ class ScalingContext:
     worker_count: int
     worker_in_use: list[str]
     worker_drain: list[str]
-    worker_free: int
+    worker_free: list[str]
 
     # Job information
     jobs_pending: list[dict]
