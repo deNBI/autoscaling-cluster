@@ -3,6 +3,9 @@
 Legacy entry point for autoscaling.
 This file bridges the old single-file autoscaling to the new module structure.
 It will be removed once the refactoring is complete.
+
+For now, this file imports and delegates to the new main.py to ensure
+backward compatibility with existing CI/CD and deployment scripts.
 """
 import os
 import sys

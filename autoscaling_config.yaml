@@ -1,5 +1,5 @@
 scaling:
-  portal_scaling_link: https://simplevm.denbi.de/portal/api/autoscaling
+  portal_scaling_link: https://simplevm.denbi.de/portal/api/autoscaling/
   portal_webapp_link: https://simplevm.denbi.de/portal/webapp/#/clusters/overview
   scaling_script_url: https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py
   scheduler: slurm
@@ -10,6 +10,18 @@ scaling:
   history_recall: 7
   ignore_workers: [ ]
   pending_jobs_percent: 1.0
+  resource_sorting: True
+  database_file: autoscaling_database.json
+  time_range_max: 1000
+  time_range_min: 1
+  log_file: autoscaling.log
+  log_csv: autoscaling.csv
+  log_level: INFO
+  cluster_password_file: cluster_pw.json
+  cluster_id: null
+  playbook_dir: ~/playbook
+  playbook_vars_dir: ~/playbook/vars
+  autoscaling_version: "2.3.0"
 
 
   mode:
@@ -17,19 +29,17 @@ scaling:
       info: 'start multiple flavors for 60% pending jobs, no limitations, no time forecast'
       service_frequency: 60
       limit_memory: 0
-      limit_worker_starts: 0
+      limit_worker_starts: 10
       limit_workers: 0
       allowed_flavor_names: []  # empty list = allow all flavors
       #  - de.NBI highmem xlarge
       #  - de.NBI highmem large
-      limit_flavor_usage:
-      #      -  'de.NBI highmem xlarge': 16
-      #      -  'de.NBI highmem large': 20
+      limit_flavor_usage: null
       scale_force: 0.6
       scale_delay: 60
       worker_cool_down: 60
-      worker_weight: 0
-      smoothing_coefficient: 0.00
+      worker_weight: 0.0
+      smoothing_coefficient: 0.0
       forecast_by_flavor_history: False
       job_match_value: 0.95
       job_time_threshold: 0.5
@@ -41,10 +51,10 @@ scaling:
       forecast_active_worker: 0
       forecast_occupied_worker: False
       flavor_restriction: 0
-      flavor_default: "de.NBI medium"
+      flavor_default: "de.NBI small"
       flavor_ephemeral: False
       flavor_gpu: 1
-      flavor_depth: -1
+      flavor_depth: 0
       large_flavors: False
       large_flavors_except_hmf: True
       auto_activate_large_flavors: 10
@@ -64,7 +74,7 @@ scaling:
       forecast_by_flavor_history: True
       forecast_by_job_history: True
       forecast_active_worker: 1
-      job_time_threshold: 0.50
+      job_time_threshold: 0.5
       flavor_depth: 1
       drain_large_nodes: True
       drain_only_hmf: True
@@ -75,7 +85,7 @@ scaling:
       forecast_by_flavor_history: True
       forecast_by_job_history: True
       forecast_active_worker: 1
-      job_time_threshold: 0.50
+      job_time_threshold: 0.5
 
     multi:
       info: 'forecast job time, start multiple flavors, automatic higher (threshold 10)'
@@ -83,7 +93,7 @@ scaling:
       forecast_by_flavor_history: True
       forecast_by_job_history: True
       forecast_active_worker: 1
-      job_time_threshold: 0.50
+      job_time_threshold: 0.5
       flavor_depth: -1
       large_flavors: False
       large_flavors_except_hmf: True
@@ -92,12 +102,12 @@ scaling:
     max:
       info: 'forecast job time, maximum worker - no flavor separation'
       worker_cool_down: 60
-      worker_weight: 0.00
-      smoothing_coefficient: 0.00
+      worker_weight: 0.0
+      smoothing_coefficient: 0.0
       forecast_by_flavor_history: True
       forecast_by_job_history: True
       forecast_active_worker: 1
-      job_time_threshold: 0.50
+      job_time_threshold: 0.5
       flavor_restriction: 0.5
       flavor_depth: -2
 
@@ -110,7 +120,7 @@ scaling:
       forecast_by_job_history: True
       forecast_active_worker: 1
       forecast_occupied_worker: True
-      job_time_threshold: 0.50
+      job_time_threshold: 0.5
       flavor_depth: -1
       large_flavors: True
       large_flavors_except_hmf: True
@@ -118,7 +128,7 @@ scaling:
     flavor:
       info: 'forecast job time only on flavor level, start multiple flavors, prefer higher flavors (except high memory)'
       limit_worker_starts: 10
-      smoothing_coefficient: 0.00
+      smoothing_coefficient: 0.0
       forecast_by_flavor_history: True
       forecast_by_job_history: False
       forecast_active_worker: 1
@@ -133,7 +143,7 @@ scaling:
       limit_worker_starts: 10
       worker_cool_down: 0
       worker_weight: 0.1
-      smoothing_coefficient: 0.00
+      smoothing_coefficient: 0.0
       forecast_by_flavor_history: True
       forecast_by_job_history: True
       forecast_active_worker: 1
@@ -150,7 +160,7 @@ scaling:
       forecast_by_flavor_history: False
       forecast_by_job_history: True
       forecast_active_worker: 0
-      job_time_threshold: 0.20
+      job_time_threshold: 0.2
       flavor_depth: -1
       large_flavors: True
       large_flavors_except_hmf: True
