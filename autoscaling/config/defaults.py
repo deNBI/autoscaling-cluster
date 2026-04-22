@@ -13,7 +13,7 @@ class ModeDefaults:
     info: str = ""
     service_frequency: int = 60
     limit_memory: int = 0
-    limit_worker_starts: int = 0
+    limit_worker_starts: int = 10
     limit_workers: int = 0
     allowed_flavor_names: list = None  # empty list = allow all flavors
     limit_flavor_usage: dict = None
@@ -33,10 +33,10 @@ class ModeDefaults:
     forecast_active_worker: int = 0
     forecast_occupied_worker: bool = False
     flavor_restriction: float = 0.0
-    flavor_default: str = "de.NBI medium"
+    flavor_default: str = "de.NBI small"
     flavor_ephemeral: bool = False
     flavor_gpu: int = 1
-    flavor_depth: int = -1
+    flavor_depth: int = 0
     large_flavors: bool = False
     large_flavors_except_hmf: bool = True
     auto_activate_large_flavors: int = 10
@@ -57,7 +57,7 @@ class GlobalDefaults:
     Global default values.
     """
     # Portal configuration
-    portal_scaling_link: str = "https://simplevm.denbi.de/portal/api/autoscaling"
+    portal_scaling_link: str = "https://simplevm.denbi.de/portal/api/autoscaling/"
     portal_webapp_link: str = "https://simplevm.denbi.de/portal/webapp/#/clusters/overview"
     scaling_script_url: str = "https://raw.githubusercontent.com/deNBI/user_scripts/refs/heads/master/bibigrid/scaling.py"
 
@@ -74,9 +74,12 @@ class GlobalDefaults:
     history_recall: int = 7
     ignore_workers: list = None
     pending_jobs_percent: float = 1.0
+    resource_sorting: bool = True
 
     # Database configuration
     database_file: str = "autoscaling_database.json"
+    time_range_max: int = 1000
+    time_range_min: int = 1
 
     # Log configuration
     log_file: str = "autoscaling.log"
@@ -90,10 +93,6 @@ class GlobalDefaults:
     # Playbook paths
     playbook_dir: str = "~/playbook"
     playbook_vars_dir: str = "~/playbook/vars"
-
-    # Time thresholds
-    time_range_max: int = 3600  # 1 hour in seconds
-    time_range_min: int = 60    # 1 minute in seconds
 
     # Version
     autoscaling_version: str = "2.3.0"
@@ -112,17 +111,19 @@ MODE_DEFAULTS = {
         info="start multiple flavors for 60% pending jobs, no limitations, no time forecast",
         service_frequency=60,
         limit_memory=0,
-        limit_worker_starts=0,
+        limit_worker_starts=10,
         limit_workers=0,
+        limit_flavor_usage=None,
         scale_force=0.6,
         scale_delay=60,
         worker_cool_down=60,
         smoothing_coefficient=0.0,
         forecast_by_flavor_history=False,
         forecast_by_job_history=False,
-        flavor_depth=-1,
+        flavor_depth=0,
         large_flavors=False,
         large_flavors_except_hmf=True,
+        auto_activate_large_flavors=10,
     ),
     "approach": ModeDefaults(
         info="start workers for 60% pending jobs, approach by 10 workers per flavor and service frequency",
