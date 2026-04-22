@@ -10,6 +10,11 @@ import requests
 from autoscaling.cloud.exceptions import APIError, AuthError
 
 
+# Constants
+SCALING_TYPE = "autoscaling"
+AUTOSCALING_VERSION = "2.3.0"
+
+
 class PortalClient:
     """
     Client for the deNBI portal autoscaling API.
@@ -45,7 +50,7 @@ class PortalClient:
             Cluster data dictionary or None on error
         """
         url = f"{self.api_url}/cluster"
-        response = self._get(url)
+        response = self._post(url, {})
         return response
 
     def get_flavors(self) -> Optional[list[dict]]:
@@ -56,7 +61,7 @@ class PortalClient:
             List of flavor dictionaries or None on error
         """
         url = f"{self.api_url}/flavors"
-        response = self._get(url)
+        response = self._post(url, {})
         return response
 
     def scale_up(self, flavor_name: str, count: int) -> Optional[dict]:
@@ -131,6 +136,23 @@ class PortalClient:
         except requests.exceptions.RequestException as e:
             raise APIError(f"GET request failed: {e}")
 
+    def _add_auth_headers(self, payload: dict) -> dict:
+        """
+        Add authentication headers and scaling context to payload.
+
+        Args:
+            payload: Original payload dictionary
+
+        Returns:
+            Payload with auth headers added
+        """
+        password = self.get_cluster_password()
+        if password:
+            payload["password"] = password
+        payload["scaling_type"] = SCALING_TYPE
+        payload["version"] = AUTOSCALING_VERSION
+        return payload
+
     def _post(self, url: str, payload: dict) -> Optional[dict]:
         """
         Perform a POST request with JSON payload.
@@ -143,6 +165,7 @@ class PortalClient:
             Response JSON or None on error
         """
         try:
+            payload = self._add_auth_headers(payload)
             response = requests.post(
                 url, json=payload, timeout=self.timeout
             )

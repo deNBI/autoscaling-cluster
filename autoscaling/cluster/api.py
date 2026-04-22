@@ -5,6 +5,10 @@ Provides access to cluster and flavor data from the portal API.
 from typing import Optional
 
 import requests
+import logging
+
+from autoscaling.utils.logging import get_logger
+from autoscaling.cluster.exceptions import AuthError
 
 # Constants
 SCALING_TYPE = "autoscaling"
@@ -39,7 +43,13 @@ class ClusterAPI:
     API client for cluster operations.
     """
 
-    def __init__(self, scaling_link: str, cluster_id: str, password_file: str = "cluster_pw.json"):
+    def __init__(
+        self,
+        scaling_link: str,
+        cluster_id: str,
+        password_file: str = "cluster_pw.json",
+        logger: Optional[logging.Logger] = None,
+    ):
         """
         Initialize the ClusterAPI.
 
@@ -47,17 +57,19 @@ class ClusterAPI:
             scaling_link: Base URL of the scaling API
             cluster_id: Cluster ID
             password_file: Path to password file
+            logger: Optional logger instance (uses default if not provided)
         """
         self.scaling_link = scaling_link
         self.cluster_id = cluster_id
         self.password_file = password_file
+        self._logger = logger or get_logger("autoscaling.cluster.api")
 
     def _get_password(self) -> str:
         """Get cluster password from file."""
         from autoscaling.utils.helpers import get_cluster_password
         password = get_cluster_password(self.password_file)
         if password is None:
-            raise ValueError(
+            raise AuthError(
                 "Cluster password not available. "
                 "Run with -p to set password."
             )
@@ -88,9 +100,8 @@ class ClusterAPI:
                 self._handle_code_unauthorized(response)
 
         except requests.exceptions.RequestException as e:
-            print(f"Error: {e}")
-
-        return None
+            self._logger.error(f"Error getting cluster data: {e}")
+            return None
 
     def get_flavors(self) -> Optional[list[dict]]:
         """
@@ -114,9 +125,8 @@ class ClusterAPI:
                 return flavors_data
 
         except requests.exceptions.RequestException as e:
-            print(f"Error: {e}")
-
-        return None
+            self._logger.error(f"Error getting flavors: {e}")
+            return None
 
     def scale_up(self, flavor_name: str, count: int) -> Optional[dict]:
         """
@@ -142,7 +152,7 @@ class ClusterAPI:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"Scale up failed: {e}")
+            self._logger.error(f"Scale up failed: {e}")
             return None
 
     def scale_down(self, hostnames: list[str]) -> Optional[dict]:
@@ -167,13 +177,13 @@ class ClusterAPI:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"Scale down failed: {e}")
+            self._logger.error(f"Scale down failed: {e}")
             return None
 
     def _version_check_scale_data(self, server_version: str) -> None:
         """Check if server version matches."""
         if server_version and server_version != AUTOSCALING_VERSION:
-            print(
+            self._logger.warning(
                 f"Version mismatch: client {AUTOSCALING_VERSION}, "
                 f"server {server_version}"
             )
@@ -181,14 +191,19 @@ class ClusterAPI:
     def _handle_code_unauthorized(self, response) -> None:
         """Handle unauthorized response."""
         if response.status_code == HTTP_CODE_UNAUTHORIZED:
-            print(
+            self._logger.error(
                 "The password seems to be wrong. Please generate a new one "
                 "for the cluster on the Cluster Overview and register "
                 "the password with 'autoscaling -p'."
             )
 
 
-def get_flavor_data(scaling_link: str, cluster_id: str, password_file: str = "cluster_pw.json") -> Optional[list[dict]]:
+def get_flavor_data(
+    scaling_link: str,
+    cluster_id: str,
+    password_file: str = "cluster_pw.json",
+    logger: Optional[logging.Logger] = None,
+) -> Optional[list[dict]]:
     """
     Get flavor data from the API.
 
@@ -196,11 +211,12 @@ def get_flavor_data(scaling_link: str, cluster_id: str, password_file: str = "cl
         scaling_link: Base URL of the scaling API
         cluster_id: Cluster ID
         password_file: Path to password file
+        logger: Optional logger instance
 
     Returns:
         List of flavor dictionaries or None on error
     """
-    api = ClusterAPI(scaling_link, cluster_id, password_file)
+    api = ClusterAPI(scaling_link, cluster_id, password_file, logger=logger)
     return api.get_flavors()
 
 

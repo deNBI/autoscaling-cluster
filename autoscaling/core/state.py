@@ -86,7 +86,7 @@ class ScalingContext:
         return (
             len(self.jobs_pending) > 0
             and len(self.worker_in_use) == 0
-            and self.worker_free == 0
+            and len(self.worker_free) == 0
         )
 
     @property

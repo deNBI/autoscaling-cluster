@@ -1,14 +1,59 @@
 """
 Configuration loader for autoscaling.
-Reads and merges configuration from YAML files and defaults.
+Reads and merges configuration from environment variables, YAML files and defaults.
 """
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 
 from autoscaling.config.defaults import MODE_DEFAULTS, DEFAULTS, GlobalDefaults, ModeDefaults
+
+
+def _normalize_env_var_name(name: str) -> str:
+    """
+    Normalize a configuration key to environment variable format.
+
+    Converts "portal_scaling_link" to "AUTOSCALING_PORTAL_SCALING_LINK"
+    and "active_mode" to "AUTOSCALING_ACTIVE_MODE"
+    Also handles nested keys: "mode.basic.service_frequency" -> "AUTOSCALING_MODE_BASIC_SERVICE_FREQUENCY"
+    """
+    return "AUTOSCALING_" + name.upper().replace(".", "_")
+
+
+def _get_env_var_value(key: str, var_type: type = str) -> Any:
+    """
+    Get a configuration value from environment variable.
+
+    Args:
+        key: Configuration key (e.g., "portal_scaling_link")
+        var_type: Expected type (str, int, float, bool)
+
+    Returns:
+        Value converted to the expected type, or None if not set
+    """
+    env_name = _normalize_env_var_name(key)
+    env_value = os.environ.get(env_name)
+
+    if env_value is None:
+        return None
+
+    try:
+        if var_type == int:
+            return int(env_value)
+        elif var_type == float:
+            return float(env_value)
+        elif var_type == bool:
+            return env_value.lower() in ("true", "1", "yes")
+        elif var_type == list:
+            # Handle comma-separated lists
+            return [item.strip() for item in env_value.split(",") if item.strip()]
+        else:
+            return env_value
+    except (ValueError, AttributeError):
+        return None
 
 
 class ConfigError(Exception):
@@ -117,8 +162,12 @@ class ConfigLoader:
             default_value = getattr(DEFAULTS, attr)
             user_value = user_settings.get(attr)
 
-            # Use user value if provided, otherwise use default
-            if user_value is not None:
+            # Priority: environment variable > user config > default
+            env_value = _get_env_var_value(attr, type(default_value))
+
+            if env_value is not None:
+                result[attr] = env_value
+            elif user_value is not None:
                 result[attr] = user_value
             else:
                 result[attr] = default_value
@@ -139,19 +188,20 @@ class ConfigLoader:
 
         for mode_name, mode_defaults in MODE_DEFAULTS.items():
             user_mode = user_modes.get(mode_name, {})
-            merged_mode = self._merge_mode(mode_defaults, user_mode)
+            merged_mode = self._merge_mode(mode_defaults, user_mode, mode_name)
             merged_mode["info"] = user_mode.get("info", mode_defaults.info)
             result[mode_name] = merged_mode
 
         return result
 
-    def _merge_mode(self, defaults: ModeDefaults, user_mode: dict[str, Any]) -> dict[str, Any]:
+    def _merge_mode(self, defaults: ModeDefaults, user_mode: dict[str, Any], mode_name: str = "") -> dict[str, Any]:
         """
         Merge a single mode's settings.
 
         Args:
             defaults: Default values for the mode
             user_mode: User-provided values
+            mode_name: Name of the mode (used for env var key construction)
 
         Returns:
             Merged mode settings
@@ -165,14 +215,14 @@ class ConfigLoader:
 
             default_value = getattr(defaults, attr)
             user_value = user_mode.get(attr)
+            # Construct the full key path for mode-specific env vars
+            # e.g., "mode.basic.service_frequency" -> "AUTOSCALING_MODE_BASIC_SERVICE_FREQUENCY"
+            env_key = f"mode.{mode_name}.{attr}" if mode_name else attr
+            env_value = _get_env_var_value(env_key, type(default_value))
 
-            # Handle list merging
-            if isinstance(default_value, list) and isinstance(user_value, list):
-                result[attr] = user_value if user_value else default_value
-            # Handle dict merging
-            elif isinstance(default_value, dict) and isinstance(user_value, dict):
-                result[attr] = {**default_value, **user_value}
-            # Simple value
+            # Priority: environment variable > user config > default
+            if env_value is not None:
+                result[attr] = env_value
             elif user_value is not None:
                 result[attr] = user_value
             else:

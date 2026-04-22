@@ -184,7 +184,7 @@ class ClusterVisualizer:
         # Plot memory usage
         bottom = 0
         widths = df["date"].diff().fillna(0).values
-        widths = np_append(widths, widths[-1])
+        widths = _numpy_append(widths, widths[-1])
 
         names = [
             "allocated",
@@ -259,7 +259,7 @@ class ClusterVisualizer:
         # Prepare data
         df["date"] = pd.to_datetime(df["time"], unit="s")
         widths = df["date"].diff().fillna(0).values
-        widths = np_append(widths, widths[-1])
+        widths = _numpy_append(widths, widths[-1])
 
         # Plot pending jobs
         ax.bar(
@@ -322,10 +322,8 @@ class ClusterVisualizer:
 # --- Helper Functions ---
 
 
-def np_append(arr, value):
+def _numpy_append(arr, value):
     """Simple append for numpy arrays."""
-    import numpy as np
-
     return np.append(arr, value)
 
 

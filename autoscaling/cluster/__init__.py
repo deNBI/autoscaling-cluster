@@ -1,7 +1,11 @@
 """
 Cluster module for autoscaling.
 """
-from autoscaling.cluster.api import ClusterAPI, get_cluster_workers, get_flavor_data
+from autoscaling.cluster.api import (
+    ClusterAPI,
+    get_cluster_workers,
+    get_flavor_data,
+)
 from autoscaling.cluster.flavors import (
     filter_flavor_by_allowed_names,
     flavor_mod_gpu,

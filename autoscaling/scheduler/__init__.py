@@ -18,6 +18,13 @@ from autoscaling.scheduler.job_data import (
     sort_job_priority,
     sort_job_by_resources,
 )
+from autoscaling.scheduler.exceptions import (
+    SchedulerError,
+    SchedulerConnectionError,
+    SchedulerDataError,
+    NodeNotFoundError,
+    JobNotFoundError,
+)
 
 __all__ = [
     "SchedulerInterface",
@@ -35,4 +42,9 @@ __all__ = [
     "sort_jobs",
     "sort_job_priority",
     "sort_job_by_resources",
+    "SchedulerError",
+    "SchedulerConnectionError",
+    "SchedulerDataError",
+    "NodeNotFoundError",
+    "JobNotFoundError",
 ]
