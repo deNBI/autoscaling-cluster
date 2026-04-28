@@ -4,18 +4,22 @@ Command implementations for autoscaling CLI.
 import os
 import sys
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from autoscaling.config.loader import ConfigLoader
 from autoscaling.data.manager import DatabaseManager
+from autoscaling.data.models import DatabaseContent, FlavorStats, JobHistory
 from autoscaling.scheduler.interface import SchedulerInterface
 from autoscaling.scheduler.slurm import SlurmScheduler
 from autoscaling.scheduler.node_data import receive_node_data_db, receive_node_data_live
-from autoscaling.scheduler.job_data import receive_job_data
+from autoscaling.scheduler.job_data import receive_job_data, sort_jobs
 from autoscaling.cluster.api import ClusterAPI, get_cluster_workers, get_flavor_data
 from autoscaling.core.autoscaler import create_autoscaler
+from autoscaling.core.scaling_engine import ScalingEngine
+from autoscaling.core.state import ScalingContext, ScaleState, Rescale
 from autoscaling.utils.logging import setup_logger
 from autoscaling.utils.helpers import generate_hash
+from autoscaling.cloud.ansible import AnsibleRunner
 
 
 # Constants (imported from original autoscaling.py)
@@ -491,6 +495,7 @@ def cmd_scale_down_choice(logger) -> int:
 def cmd_scale_down_batch(logger) -> int:
     """
     Scale down by batch command handler.
+    Uses the autoscaler to determine which workers to scale down.
 
     Args:
         logger: Logger instance
@@ -499,8 +504,90 @@ def cmd_scale_down_batch(logger) -> int:
         Exit code
     """
     logger.info("Scale down by batch")
-    # Implementation would call autoscaler
-    return 0
+
+    # Initialize scheduler
+    scheduler = _init_scheduler(logger)
+    if scheduler is None:
+        logger.error("Failed to initialize scheduler")
+        return 1
+
+    # Load configuration
+    config = _load_config(logger)
+    scaling_config = config.get("scaling", {})
+    scaling_link = scaling_config.get("portal_scaling_link", "")
+    cluster_id = scaling_config.get("cluster_id", "")
+    password_file = scaling_config.get("password_file", "cluster_pw.json")
+
+    if not scaling_link or not cluster_id:
+        logger.error("Scaling link or cluster ID not configured")
+        return 1
+
+    # Get current node and job data
+    node_data = receive_node_data_live(scheduler)
+    jobs_pending, jobs_running = receive_job_data(scheduler)
+
+    if not node_data:
+        logger.error("Failed to get node data")
+        return 1
+
+    # Build context for autoscaler
+    in_use = []
+    drain = []
+    free = []
+
+    for hostname, node in node_data.items():
+        if "worker" not in hostname:
+            continue
+        state = node.state if hasattr(node, "state") else node.get("state", "")
+        if "DRAIN" in state:
+            drain.append(hostname)
+        elif state in ["ALLOC", "MIX"]:
+            in_use.append(hostname)
+        elif state == "IDLE":
+            free.append(hostname)
+
+    # Use scaling engine to determine downscale action
+    flavor_data = get_flavor_data(scaling_link, cluster_id, password_file, logger)
+
+    context = ScalingContext(
+        mode=scaling_config.get("active_mode", "basic"),
+        scale_force=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_force", 0.6),
+        scale_delay=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_delay", 60),
+        worker_cool_down=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("worker_cool_down", 60),
+        limit_memory=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_memory", 0),
+        limit_worker_starts=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_worker_starts", 0),
+        limit_workers=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_workers", 0),
+        worker_count=len(in_use) + len(free),
+        worker_in_use=in_use,
+        worker_drain=drain,
+        worker_free=free,
+        jobs_pending=list(jobs_pending.values()),
+        jobs_running=list(jobs_running.values()),
+        jobs_pending_count=len(jobs_pending),
+        jobs_running_count=len(jobs_running),
+        flavor_data=flavor_data if flavor_data else [],
+        flavor_default=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("flavor_default"),
+    )
+
+    engine = ScalingEngine(context)
+    action = engine.calculate_scaling()
+
+    if action.downscale and action.downscale_workers:
+        # Create cluster API client
+        cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
+
+        # Scale down
+        result = cluster_api.scale_down(action.downscale_workers)
+        if result:
+            logger.info(f"Successfully scaled down {len(action.downscale_workers)} workers")
+            rescale_cluster(scheduler, cluster_api, 0)
+            return 0
+        else:
+            logger.error("Scale down failed")
+            return 1
+    else:
+        logger.info("No workers to scale down based on current state")
+        return 0
 
 
 def cmd_show_nodes(scheduler, logger) -> int:
@@ -654,6 +741,7 @@ def cmd_show_cluster(config, logger) -> int:
 def cmd_change_mode(config, logger) -> int:
     """
     Change mode command handler.
+    Allows changing the active scaling mode via interactive prompt.
 
     Args:
         config: Configuration dictionary
@@ -663,13 +751,52 @@ def cmd_change_mode(config, logger) -> int:
         Exit code
     """
     logger.info("Change mode")
-    # Implementation would change active mode
-    return 0
+
+    # Available modes
+    available_modes = ["basic", "approach", "adaptive", "sequence", "multi",
+                       "max", "default", "flavor", "min", "reactive"]
+    current_mode = config.get("scaling", {}).get("active_mode", "basic")
+
+    logger.info(f"Current mode: {current_mode}")
+    logger.info(f"Available modes: {', '.join(available_modes)}")
+
+    # In non-interactive mode, just log available options
+    # For interactive mode, prompt the user
+    try:
+        import sys
+        if sys.stdin.isatty():
+            # Interactive mode
+            user_input = input("Enter new mode: ").strip().lower()
+            if user_input in available_modes:
+                # Update config
+                config["scaling"]["active_mode"] = user_input
+                # Save config
+                from autoscaling.config.validator import validate_config
+                is_valid, errors, warnings = validate_config(config)
+                if is_valid:
+                    loader = ConfigLoader(FILE_CONFIG_YAML)
+                    loader.save(config)
+                    logger.info(f"Mode changed to: {user_input}")
+                    return 0
+                else:
+                    logger.error(f"Invalid configuration: {errors}")
+                    return 1
+            else:
+                logger.error(f"Invalid mode. Available: {', '.join(available_modes)}")
+                return 1
+        else:
+            # Non-interactive: just log available modes
+            logger.info("Run without stdin to enable interactive mode")
+            return 0
+    except Exception as e:
+        logger.error(f"Failed to change mode: {e}")
+        return 1
 
 
 def cmd_ignore_workers(config, logger) -> int:
     """
     Ignore workers command handler.
+    Allows managing the list of ignored workers.
 
     Args:
         config: Configuration dictionary
@@ -679,13 +806,41 @@ def cmd_ignore_workers(config, logger) -> int:
         Exit code
     """
     logger.info("Select ignored workers")
-    # Implementation would update ignore list
-    return 0
+
+    current_ignore = config.get("scaling", {}).get("ignore_workers", [])
+    logger.info(f"Current ignored workers: {', '.join(current_ignore) if current_ignore else 'none'}")
+
+    try:
+        if sys.stdin.isatty():
+            # Interactive mode
+            print("Enter worker hostnames to ignore (comma-separated):")
+            print("Enter empty line to clear ignore list")
+            user_input = input("Ignore: ").strip()
+
+            if user_input:
+                new_ignore = [w.strip() for w in user_input.split(",") if w.strip()]
+                config["scaling"]["ignore_workers"] = new_ignore
+                logger.info(f"Ignored workers updated: {', '.join(new_ignore)}")
+            else:
+                config["scaling"]["ignore_workers"] = []
+                logger.info("Ignored workers cleared")
+
+            # Save config
+            loader = ConfigLoader(FILE_CONFIG_YAML)
+            loader.save(config)
+            return 0
+        else:
+            logger.info("Run without stdin to enable interactive mode")
+            return 0
+    except Exception as e:
+        logger.error(f"Failed to update ignore list: {e}")
+        return 1
 
 
 def cmd_rescale(config, logger) -> int:
     """
     Rescale command handler.
+    Uses the autoscaler to determine optimal worker configuration.
 
     Args:
         config: Configuration dictionary
@@ -696,6 +851,12 @@ def cmd_rescale(config, logger) -> int:
     """
     logger.info("Rescale cluster configuration")
 
+    # Initialize scheduler
+    scheduler = _init_scheduler(logger)
+    if scheduler is None:
+        logger.error("Failed to initialize scheduler")
+        return 1
+
     scaling_config = config.get("scaling", {})
     scaling_link = scaling_config.get("portal_scaling_link", "")
     cluster_id = scaling_config.get("cluster_id", "")
@@ -705,22 +866,82 @@ def cmd_rescale(config, logger) -> int:
         logger.error("Scaling link or cluster ID not configured")
         return 1
 
+    # Get current state
+    node_data = receive_node_data_live(scheduler)
+    jobs_pending, jobs_running = receive_job_data(scheduler)
+
+    if not node_data:
+        logger.error("Failed to get node data")
+        return 1
+
+    # Build context for autoscaler
+    in_use = []
+    drain = []
+    free = []
+
+    for hostname, node in node_data.items():
+        if "worker" not in hostname:
+            continue
+        state = node.state if hasattr(node, "state") else node.get("state", "")
+        if "DRAIN" in state:
+            drain.append(hostname)
+        elif state in ["ALLOC", "MIX"]:
+            in_use.append(hostname)
+        elif state == "IDLE":
+            free.append(hostname)
+
+    flavor_data = get_flavor_data(scaling_link, cluster_id, password_file, logger)
+
+    context = ScalingContext(
+        mode=scaling_config.get("active_mode", "basic"),
+        scale_force=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_force", 0.6),
+        scale_delay=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_delay", 60),
+        worker_cool_down=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("worker_cool_down", 60),
+        limit_memory=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_memory", 0),
+        limit_worker_starts=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_worker_starts", 0),
+        limit_workers=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_workers", 0),
+        worker_count=len(in_use) + len(free),
+        worker_in_use=in_use,
+        worker_drain=drain,
+        worker_free=free,
+        jobs_pending=list(jobs_pending.values()),
+        jobs_running=list(jobs_running.values()),
+        jobs_pending_count=len(jobs_pending),
+        jobs_running_count=len(jobs_running),
+        flavor_data=flavor_data if flavor_data else [],
+        flavor_default=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("flavor_default"),
+    )
+
+    engine = ScalingEngine(context)
+    action = engine.calculate_scaling()
+
     # Create cluster API client
-    from autoscaling.cluster.api import ClusterAPI
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
-    # Get current worker count
-    node_data = receive_node_data_live(None)
-    if node_data:
-        worker_count = sum(1 for h, n in node_data.items() if "worker" in h)
+    # Execute scaling action
+    if action.upscale and action.upscale_count > 0:
+        logger.info(f"Upscaling: {action.upscale_count} workers of flavor {action.upscale_flavor}")
+        result = cluster_api.scale_up(action.upscale_flavor, action.upscale_count)
+        if not result:
+            logger.error("Scale up failed")
+            return 1
+    elif action.downscale and action.downscale_workers:
+        logger.info(f"Downscaling: {len(action.downscale_workers)} workers")
+        result = cluster_api.scale_down(action.downscale_workers)
+        if not result:
+            logger.error("Scale down failed")
+            return 1
     else:
-        worker_count = 0
+        logger.info("No scaling action needed")
+        return 0
 
-    # Run rescale
-    return rescale_cluster(None, cluster_api, worker_count)
+    # Run rescale (Ansible playbook)
+    worker_count = len(in_use) + len(free) + (action.upscale_count if action.upscale else -len(action.downscale_workers) if action.downscale else 0)
+    rescale_cluster(scheduler, cluster_api, worker_count)
+    return 0
 
 
-def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> bool:
+def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> int:
     """
     Apply new worker configuration.
     Executes scaling, modifies and runs ansible playbook.
@@ -748,6 +969,7 @@ def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> bool:
 def cmd_drain_workers(scheduler, logger) -> int:
     """
     Drain workers command handler.
+    Sets workers to DRAIN state via scheduler.
 
     Args:
         scheduler: Scheduler instance
@@ -757,8 +979,49 @@ def cmd_drain_workers(scheduler, logger) -> int:
         Exit code
     """
     logger.info("Set workers to drain")
-    # Implementation would drain selected workers
-    return 0
+
+    if scheduler is None:
+        logger.error("Scheduler not available")
+        return 1
+
+    # Get current node data
+    node_data = receive_node_data_live(scheduler)
+    if not node_data:
+        logger.error("Failed to get node data")
+        return 1
+
+    # Find idle workers
+    idle_workers = []
+    for hostname, node in node_data.items():
+        if "worker" in hostname and node.state == "IDLE":
+            idle_workers.append(hostname)
+
+    if not idle_workers:
+        logger.info("No idle workers to drain")
+        return 0
+
+    logger.info(f"Found {len(idle_workers)} idle workers to drain")
+
+    # Drain workers via scheduler (using drain_node as per interface)
+    success = True
+    for hostname in idle_workers:
+        try:
+            result = scheduler.drain_node(hostname)
+            if result:
+                logger.info(f"Drained worker: {hostname}")
+            else:
+                logger.error(f"Failed to drain worker: {hostname}")
+                success = False
+        except Exception as e:
+            logger.error(f"Error draining worker {hostname}: {e}")
+            success = False
+
+    if success:
+        logger.info(f"Successfully drained {len(idle_workers)} workers")
+        return 0
+    else:
+        logger.error("Some workers failed to drain")
+        return 1
 
 
 def cmd_run_playbook(config, logger) -> int:
@@ -773,8 +1036,18 @@ def cmd_run_playbook(config, logger) -> int:
         Exit code
     """
     logger.info("Run Ansible playbook")
-    # Implementation would run ansible
-    return 0
+    try:
+        from autoscaling.cloud.ansible import AnsibleRunner
+        ansible_runner = AnsibleRunner()
+        if ansible_runner.run():
+            logger.info("Ansible playbook executed successfully")
+            return 0
+        else:
+            logger.error("Ansible playbook failed")
+            return 1
+    except Exception as e:
+        logger.error(f"Failed to run playbook: {e}")
+        return 1
 
 
 def cmd_check_workers(logger) -> int:
@@ -788,8 +1061,28 @@ def cmd_check_workers(logger) -> int:
         Exit code
     """
     logger.info("Check workers")
-    # Implementation would check worker status
-    return 0
+    config = _load_config(logger)
+    scaling_config = config.get("scaling", {})
+    scaling_link = scaling_config.get("portal_scaling_link", "")
+    cluster_id = scaling_config.get("cluster_id", "")
+
+    if not scaling_link or not cluster_id:
+        logger.error("Scaling link or cluster ID not configured")
+        return 1
+
+    from autoscaling.cluster.api import ClusterAPI
+    cluster_api = ClusterAPI(scaling_link, cluster_id)
+    cluster_data = cluster_api.get_cluster_data()
+
+    if cluster_data:
+        workers = cluster_data.get("workers", [])
+        logger.info(f"Total workers: {len(workers)}")
+        for worker in workers:
+            logger.info(f"  - {worker.get('hostname')}: {worker.get('state')}")
+        return 0
+    else:
+        logger.error("Failed to get cluster data")
+        return 1
 
 
 def cmd_test(scheduler, config, logger) -> int:
@@ -942,8 +1235,15 @@ def cmd_visualize(time_range: str, logger) -> int:
         Exit code
     """
     logger.info(f"Visualize cluster data: {time_range}")
-    # Implementation would generate plots
-    return 0
+    from autoscaling.visualization.plots import ClusterVisualizer
+    try:
+        visualizer = ClusterVisualizer()
+        visualizer.visualize(time_range)
+        logger.info("Visualization complete")
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to create visualization: {e}")
+        return 1
 
 
 def cmd_set_password(logger) -> int:
@@ -957,8 +1257,13 @@ def cmd_set_password(logger) -> int:
         Exit code
     """
     logger.info("Set cluster password")
-    # Implementation would prompt for and save password
-    return 0
+    from autoscaling.utils.helpers import set_cluster_password
+    if set_cluster_password():
+        logger.info("Password set successfully")
+        return 0
+    else:
+        logger.error("Failed to set password")
+        return 1
 
 
 def cmd_run_service(scheduler, config, logger) -> int:
