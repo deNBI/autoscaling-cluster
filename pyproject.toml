@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autoscaling"
+version = "2.3.0"
+description = "Autoscaling for deNBI clusters"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "deNBI", email = "support@denbi.de"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.28.0",
+    # pyslurm is optional - required only if using Slurm scheduler
+    # "pyslurm>=23.11.0",
+    "matplotlib>=3.7.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+autoscaling = "autoscaling.cli.commands:run_command"
+
+[project.urls]
+Homepage = "https://github.com/deNBI/autoscaling-cluster"
+Documentation = "https://github.com/deNBI/autoscaling-cluster#readme"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autoscaling*"]

@@ -195,7 +195,7 @@ class DatabaseManager:
             flavor_name=fv_name,
             elapsed_time=elapsed_time,
             normalized_time=normalized_time,
-            timestamp=int(__utc_timestamp()),
+            timestamp=int(utc_timestamp()),
         )
 
         return self.save(self._data)
@@ -321,7 +321,7 @@ class DatabaseManager:
 
         self._data.metadata.version = version
         self._data.metadata.config_hash = config_hash
-        self._data.metadata.update_time = int(__utc_timestamp())
+        self._data.metadata.update_time = int(utc_timestamp())
 
         return self.save(self._data)
 
@@ -343,7 +343,7 @@ class DatabaseManager:
         return self.save(self._data)
 
 
-def __utc_timestamp() -> int:
+def utc_timestamp() -> int:
     """Get current UTC timestamp."""
     import time
     return int(time.time())
