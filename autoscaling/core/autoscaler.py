@@ -2,16 +2,17 @@
 Main autoscaler class for autoscaling.
 Orchestrates the scaling process.
 """
+
 import time
 from typing import Optional
 
 from autoscaling.cloud.ansible import AnsibleRunner
 from autoscaling.cloud.client import PortalClient
 from autoscaling.config.loader import ConfigLoader
+from autoscaling.core.scaling_engine import ScalingEngine
+from autoscaling.core.state import ScalingAction, ScalingContext
 from autoscaling.data.manager import DatabaseManager
 from autoscaling.scheduler.interface import SchedulerInterface
-from autoscaling.core.state import ScalingContext, ScalingAction, ScaleState
-from autoscaling.core.scaling_engine import ScalingEngine
 
 
 class Autoscaler:
@@ -49,9 +50,7 @@ class Autoscaler:
         self.service_frequency = scaling_config.get("service_frequency", 60)
 
         # Get mode-specific settings
-        self.mode_config = scaling_config.get("mode", {}).get(
-            self.active_mode, {}
-        )
+        self.mode_config = scaling_config.get("mode", {}).get(self.active_mode, {})
 
         self._running = False
 
@@ -121,9 +120,7 @@ class Autoscaler:
         """
         self._running = False
 
-    def _prepare_context(
-        self, node_data: dict, job_data: dict
-    ) -> ScalingContext:
+    def _prepare_context(self, node_data: dict, job_data: dict) -> ScalingContext:
         """
         Prepare the scaling context from node and job data.
 
@@ -155,7 +152,7 @@ class Autoscaler:
         pending = []
         running = []
 
-        for job_id, job in job_data.items():
+        for _job_id, job in job_data.items():
             if job.state == 0:  # PENDING
                 pending.append(job.__dict__)
             elif job.state == 1:  # RUNNING
@@ -176,31 +173,21 @@ class Autoscaler:
             worker_count=len(in_use) + len(free),
             worker_in_use=in_use,
             worker_drain=drain,
-            worker_free=len(free),
+            worker_free=free,
             jobs_pending=pending,
             jobs_running=running,
             jobs_pending_count=len(pending),
             jobs_running_count=len(running),
             flavor_data=flavor_data,
             flavor_default=self.mode_config.get("flavor_default"),
-            forecast_by_flavor_history=self.mode_config.get(
-                "forecast_by_flavor_history", False
-            ),
-            forecast_by_job_history=self.mode_config.get(
-                "forecast_by_job_history", False
-            ),
-            forecast_active_worker=self.mode_config.get(
-                "forecast_active_worker", 0
-            ),
+            forecast_by_flavor_history=self.mode_config.get("forecast_by_flavor_history", False),
+            forecast_by_job_history=self.mode_config.get("forecast_by_job_history", False),
+            forecast_active_worker=self.mode_config.get("forecast_active_worker", 0),
             job_time_threshold=self.mode_config.get("job_time_threshold", 0.5),
-            smoothing_coefficient=self.mode_config.get(
-                "smoothing_coefficient", 0.0
-            ),
+            smoothing_coefficient=self.mode_config.get("smoothing_coefficient", 0.0),
             flavor_depth=self.mode_config.get("flavor_depth", -1),
             large_flavors=self.mode_config.get("large_flavors", False),
-            large_flavors_except_hmf=self.mode_config.get(
-                "large_flavors_except_hmf", True
-            ),
+            large_flavors_except_hmf=self.mode_config.get("large_flavors_except_hmf", True),
         )
 
     def _get_flavor_data(self) -> list[dict]:
@@ -212,8 +199,10 @@ class Autoscaler:
         """
         if self.portal_client:
             flavors = self.portal_client.get_flavors()
-            if flavors:
+            if isinstance(flavors, list):
                 return flavors
+            elif isinstance(flavors, dict):
+                return [flavors]
 
         # Return empty list if no client available
         return []
@@ -239,10 +228,9 @@ class Autoscaler:
         Returns:
             True if successful
         """
-        if self.portal_client:
-            return self.portal_client.scale_up(
-                action.upscale_flavor, action.upscale_count
-            )
+        if self.portal_client and action.upscale_flavor:
+            result = self.portal_client.scale_up(action.upscale_flavor, action.upscale_count)
+            return result is not None
         return False
 
     def _execute_downscale(self, action: ScalingAction) -> bool:
@@ -256,7 +244,8 @@ class Autoscaler:
             True if successful
         """
         if self.portal_client:
-            return self.portal_client.scale_down(action.downscale_workers)
+            result = self.portal_client.scale_down(action.downscale_workers)
+            return result is not None
         return False
 
 

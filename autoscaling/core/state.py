@@ -2,8 +2,9 @@
 State management for autoscaling.
 Defines the scaling states and context.
 """
+
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -83,11 +84,7 @@ class ScalingContext:
         Returns:
             True if workers are needed
         """
-        return (
-            len(self.jobs_pending) > 0
-            and len(self.worker_in_use) == 0
-            and len(self.worker_free) == 0
-        )
+        return len(self.jobs_pending) > 0 and len(self.worker_in_use) == 0 and len(self.worker_free) == 0
 
     @property
     def can_scale_up(self) -> bool:
@@ -149,9 +146,7 @@ class ScalingAction:
         return not self.upscale and not self.downscale
 
     @classmethod
-    def upscale_action(
-        cls, flavor: str, count: int, reason: str = ""
-    ) -> "ScalingAction":
+    def upscale_action(cls, flavor: str, count: int, reason: str = "") -> "ScalingAction":
         """
         Create an upscale action.
 
@@ -171,9 +166,7 @@ class ScalingAction:
         )
 
     @classmethod
-    def downscale_action(
-        cls, workers: list[str], reason: str = ""
-    ) -> "ScalingAction":
+    def downscale_action(cls, workers: list[str], reason: str = "") -> "ScalingAction":
         """
         Create a downscale action.
 

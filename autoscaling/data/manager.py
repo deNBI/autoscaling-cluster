@@ -2,6 +2,7 @@
 Database manager for autoscaling.
 Handles job history and flavor statistics.
 """
+
 import json
 import os
 from pathlib import Path
@@ -42,7 +43,7 @@ class DatabaseManager:
             return None
 
         try:
-            with open(self.database_file, "r", encoding="utf8") as f:
+            with open(self.database_file, encoding="utf8") as f:
                 data = json.load(f)
 
             # Parse metadata
@@ -116,7 +117,7 @@ class DatabaseManager:
                         "timestamp": job_data.timestamp,
                     }
 
-                output["flavor_name"][fv_name] = {
+                output["flavor_name"][fv_name] = {  # type: ignore[index]
                     "fv_time_norm": fv_data.time_norm,
                     "fv_time_avg": fv_data.time_avg,
                     "fv_time_sum": fv_data.time_sum,
@@ -241,12 +242,14 @@ class DatabaseManager:
         if fv_name in self._data.flavor_stats:
             for name, history in self._data.flavor_stats[fv_name].similar_jobs.items():
                 if name == job_name:
+                    assert isinstance(history, JobHistory)
                     return history
 
         # Then, try fuzzy match across all flavors
-        for fv_name_check, fv_stats in self._data.flavor_stats.items():
+        for _fv_name_check, fv_stats in self._data.flavor_stats.items():
             for name, history in fv_stats.similar_jobs.items():
                 if self._fuzzy_match(job_name, name, match_threshold):
+                    assert isinstance(history, JobHistory)
                     return history
 
         return None
@@ -346,4 +349,5 @@ class DatabaseManager:
 def utc_timestamp() -> int:
     """Get current UTC timestamp."""
     import time
+
     return int(time.time())

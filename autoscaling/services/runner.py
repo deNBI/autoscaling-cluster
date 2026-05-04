@@ -2,9 +2,9 @@
 Service runner for autoscaling.
 Manages the autoscaling service lifecycle.
 """
-import os
+
+import logging
 import signal
-import sys
 import time
 from typing import Optional
 
@@ -12,11 +12,9 @@ from autoscaling.cloud.ansible import AnsibleRunner
 from autoscaling.cloud.client import PortalClient
 from autoscaling.config.loader import ConfigLoader
 from autoscaling.core.autoscaler import Autoscaler
-from autoscaling.core.state import ScalingAction
 from autoscaling.data.manager import DatabaseManager
 from autoscaling.scheduler.interface import SchedulerInterface
 from autoscaling.utils.logging import setup_logger
-from autoscaling.utils.helpers import generate_hash
 
 
 class ServiceRunner:
@@ -77,7 +75,7 @@ class ServiceRunner:
 
         # State
         self._running = False
-        self._logger = None
+        self._logger: Optional[logging.Logger] = None
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -108,9 +106,7 @@ class ServiceRunner:
                 if action.is_noop:
                     self._logger.debug("No scaling action needed")
                 else:
-                    self._logger.info(
-                        f"Scaling action: {action.reason or 'Unknown'}"
-                    )
+                    self._logger.info(f"Scaling action: {action.reason or 'Unknown'}")
 
                 # Update database if needed
                 self._update_database()
@@ -137,14 +133,16 @@ class ServiceRunner:
         """
         Stop the service gracefully.
         """
-        self._logger.info("Stopping service...")
+        if self._logger:
+            self._logger.info("Stopping service...")
         self._running = False
 
     def _setup(self) -> None:
         """
         Perform initial setup.
         """
-        self._logger.info("Performing initial setup")
+        if self._logger:
+            self._logger.info("Performing initial setup")
 
         # Load database
         self.db_manager.load()
@@ -160,7 +158,8 @@ class ServiceRunner:
             if self._should_update_database():
                 self.db_manager.load()
         except Exception as e:
-            self._logger.error(f"Error updating database: {e}")
+            if self._logger:
+                self._logger.error(f"Error updating database: {e}")
 
     def _should_update_database(self) -> bool:
         """
@@ -169,14 +168,9 @@ class ServiceRunner:
         Returns:
             True if database should be updated
         """
-        mode_config = self.config.get("scaling", {}).get("mode", {}).get(
-            self.active_mode, {}
-        )
+        mode_config = self.config.get("scaling", {}).get("mode", {}).get(self.active_mode, {})
 
-        return (
-            mode_config.get("forecast_by_flavor_history", False)
-            or mode_config.get("forecast_by_job_history", False)
-        )
+        return bool(mode_config.get("forecast_by_flavor_history", False) or mode_config.get("forecast_by_job_history", False))
 
     def _check_updates(self) -> None:
         """
@@ -195,7 +189,8 @@ class ServiceRunner:
             frame: Current stack frame
         """
         signal_name = signal.Signals(signum).name
-        self._logger.info(f"Received {signal_name}")
+        if self._logger:
+            self._logger.info(f"Received {signal_name}")
 
         if signum in [signal.SIGINT, signal.SIGTERM]:
             self._running = False

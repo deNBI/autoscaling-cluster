@@ -2,6 +2,7 @@
 Scheduler interface definition for autoscaling.
 Defines the contract for different scheduler implementations.
 """
+
 import abc
 from dataclasses import dataclass
 from typing import Optional
@@ -12,6 +13,7 @@ class SchedulerNodeState:
     """
     Represents the state of a scheduler node.
     """
+
     hostname: str
     state: str  # ALLOC, MIX, IDLE, DRAIN, DOWN
     total_cpus: int
@@ -27,6 +29,7 @@ class SchedulerJobState:
     """
     Represents the state of a scheduler job.
     """
+
     jobid: int
     state: int  # 0=PENDING, 1=RUNNING, 3=COMPLETED
     state_str: str

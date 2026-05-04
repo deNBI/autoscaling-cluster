@@ -2,9 +2,9 @@
 Ansible integration for autoscaling.
 Runs Ansible playbooks for cluster configuration.
 """
+
 import os
 import subprocess
-from typing import Optional
 
 
 class AnsibleRunner:
@@ -60,7 +60,7 @@ class AnsibleRunner:
         forks_num = str(cpu_count * 4)
         cmd.extend(["--forks", forks_num])
 
-        print(f"--- Running Ansible Playbook ---")
+        print("--- Running Ansible Playbook ---")
         print(f"Directory: {self.playbook_dir}")
         print(f"Command: {' '.join(cmd)}")
 
@@ -78,8 +78,9 @@ class AnsibleRunner:
             )
 
             # Log output
-            for line in process.stdout:
-                print(f"[ANSIBLE] {line.strip()}")
+            if process.stdout:
+                for line in process.stdout:
+                    print(f"[ANSIBLE] {line.strip()}")
 
             # Wait for completion
             return_code = process.wait()

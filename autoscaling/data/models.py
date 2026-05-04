@@ -1,8 +1,8 @@
 """
 Data models for autoscaling database.
 """
+
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -10,6 +10,7 @@ class JobHistory:
     """
     History data for a job.
     """
+
     job_name: str
     flavor_name: str
     elapsed_time: int  # in seconds
@@ -22,6 +23,7 @@ class FlavorStats:
     """
     Statistics for a flavor.
     """
+
     flavor_name: str
     time_norm: float  # Normalized time
     time_avg: int  # Average time
@@ -35,6 +37,7 @@ class DatabaseMetadata:
     """
     Metadata for the database.
     """
+
     version: str
     config_hash: str
     update_time: int  # Unix timestamp of last update
@@ -45,5 +48,6 @@ class DatabaseContent:
     """
     Complete database content.
     """
+
     metadata: DatabaseMetadata
     flavor_stats: dict[str, FlavorStats] = field(default_factory=dict)

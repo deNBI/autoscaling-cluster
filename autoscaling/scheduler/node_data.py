@@ -2,6 +2,7 @@
 Node data handling for autoscaling scheduler.
 Provides functions to receive and process node data from the scheduler.
 """
+
 from typing import Optional
 
 from autoscaling.scheduler.interface import SchedulerInterface, SchedulerNodeState
@@ -40,9 +41,7 @@ def receive_node_data_live_uncut(scheduler: SchedulerInterface) -> dict:
     return node_dict
 
 
-def receive_node_data_db(
-    scheduler: SchedulerInterface, quiet: bool = False
-) -> tuple[Optional[dict], int, list, list, Optional[list]]:
+def receive_node_data_db(scheduler: SchedulerInterface, quiet: bool = False) -> tuple[Optional[dict], int, list, list, Optional[list]]:
     """
     Query the node data from scheduler and return the json object,
     including the number of workers and how many are currently in use.
@@ -62,9 +61,7 @@ def receive_node_data_db(
     return _receive_node_stats(node_dict, quiet)
 
 
-def _receive_node_stats(
-    node_dict: dict, quiet: bool = False
-) -> tuple[dict, int, list, list, Optional[list]]:
+def _receive_node_stats(node_dict: dict, quiet: bool = False) -> tuple[dict, int, list, list, Optional[list]]:
     """
     Process node dictionary and return worker statistics.
 
@@ -108,10 +105,7 @@ def _receive_node_stats(
                     "free_memory": value.free_memory,
                 }
 
-            if "temporary_disk" in value:
-                tmp_disk = value["temporary_disk"]
-            else:
-                tmp_disk = 0
+            tmp_disk = value.get("temporary_disk", 0)
 
             # Determine worker state
             state = value.get("state", "")

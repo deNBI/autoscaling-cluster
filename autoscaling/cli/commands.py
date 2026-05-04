@@ -1,26 +1,23 @@
 """
 Command implementations for autoscaling CLI.
 """
+
 import os
 import sys
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
-from autoscaling.config.loader import ConfigLoader
-from autoscaling.data.manager import DatabaseManager
-from autoscaling.data.models import DatabaseContent, FlavorStats, JobHistory
-from autoscaling.scheduler.interface import SchedulerInterface
-from autoscaling.scheduler.slurm import SlurmScheduler
-from autoscaling.scheduler.node_data import receive_node_data_db, receive_node_data_live
-from autoscaling.scheduler.job_data import receive_job_data, sort_jobs
-from autoscaling.cluster.api import ClusterAPI, get_cluster_workers, get_flavor_data
-from autoscaling.core.autoscaler import create_autoscaler
-from autoscaling.core.scaling_engine import ScalingEngine
-from autoscaling.core.state import ScalingContext, ScaleState, Rescale
-from autoscaling.utils.logging import setup_logger
-from autoscaling.utils.helpers import generate_hash
 from autoscaling.cloud.ansible import AnsibleRunner
-
+from autoscaling.cluster.api import ClusterAPI, get_flavor_data
+from autoscaling.config.loader import ConfigLoader
+from autoscaling.core.scaling_engine import ScalingEngine
+from autoscaling.core.state import ScalingContext
+from autoscaling.data.manager import DatabaseManager
+from autoscaling.scheduler.interface import SchedulerInterface
+from autoscaling.scheduler.job_data import receive_job_data
+from autoscaling.scheduler.node_data import receive_node_data_live
+from autoscaling.scheduler.slurm import SlurmScheduler
+from autoscaling.utils.logging import setup_logger
 
 # Constants (imported from original autoscaling.py)
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
@@ -46,7 +43,7 @@ def run_command(args, parser) -> int:
 
     # Handle version
     if args.version:
-        print(f"Version: 2.3.0")
+        print("Version: 2.3.0")
         return 0
 
     # Initialize scheduler
@@ -63,9 +60,7 @@ def run_command(args, parser) -> int:
     if args.scaleup is not None:
         return cmd_scale_up(args.scaleup, logger)
     elif args.scaleupspecific:
-        return cmd_scale_up_specific(
-            args.scaleupspecific[0], int(args.scaleupspecific[1]), logger
-        )
+        return cmd_scale_up_specific(args.scaleupspecific[0], int(args.scaleupspecific[1]), logger)
     elif args.scaleupchoice:
         return cmd_scale_up_choice(logger)
     elif args.scaledown:
@@ -199,6 +194,7 @@ def cmd_scale_up(count: int, logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Get flavor data to find the default flavor
@@ -254,6 +250,7 @@ def cmd_scale_up_specific(flavor: str, count: int, logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Scale up with specific flavor
@@ -306,6 +303,7 @@ def cmd_scale_up_choice(logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Get flavor data
@@ -371,6 +369,7 @@ def cmd_scale_down(logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Scale down
@@ -413,6 +412,7 @@ def cmd_scale_down_specific(hostnames: str, logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Scale down
@@ -462,7 +462,7 @@ def cmd_scale_down_choice(logger) -> int:
 
     # Collect all worker hostnames
     all_workers = []
-    for hostname, node in node_data.items():
+    for hostname, _node in node_data.items():
         if "worker" in hostname:
             all_workers.append(hostname)
 
@@ -479,6 +479,7 @@ def cmd_scale_down_choice(logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Scale down
@@ -555,7 +556,9 @@ def cmd_scale_down_batch(logger) -> int:
         scale_delay=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_delay", 60),
         worker_cool_down=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("worker_cool_down", 60),
         limit_memory=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_memory", 0),
-        limit_worker_starts=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_worker_starts", 0),
+        limit_worker_starts=scaling_config.get("mode", {})
+        .get(scaling_config.get("active_mode", "basic"), {})
+        .get("limit_worker_starts", 0),
         limit_workers=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_workers", 0),
         worker_count=len(in_use) + len(free),
         worker_in_use=in_use,
@@ -604,10 +607,7 @@ def cmd_show_nodes(scheduler, logger) -> int:
     node_data = receive_node_data_live(scheduler)
     if node_data:
         for hostname, node in node_data.items():
-            if isinstance(node, dict):
-                state = node.get("state", "UNKNOWN")
-            else:
-                state = node.state
+            state = node.get("state", "UNKNOWN") if isinstance(node, dict) else node.state
             logger.info(f"{hostname}: {state}")
     return 0
 
@@ -672,6 +672,7 @@ def cmd_show_flavors(config, logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Get flavors
@@ -717,6 +718,7 @@ def cmd_show_cluster(config, logger) -> int:
 
     # Create cluster API client
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Get cluster data
@@ -727,11 +729,7 @@ def cmd_show_cluster(config, logger) -> int:
         logger.info(f"Total workers: {len(workers)}")
         for worker in workers:
             fv = worker.get("flavor", {})
-            logger.info(
-                f"  - {worker.get('hostname')}: "
-                f"state={worker.get('state')}, "
-                f"flavor={fv.get('name', 'N/A')}"
-            )
+            logger.info(f"  - {worker.get('hostname')}: " f"state={worker.get('state')}, " f"flavor={fv.get('name', 'N/A')}")
         return 0
     else:
         logger.error("Failed to get cluster data")
@@ -753,8 +751,7 @@ def cmd_change_mode(config, logger) -> int:
     logger.info("Change mode")
 
     # Available modes
-    available_modes = ["basic", "approach", "adaptive", "sequence", "multi",
-                       "max", "default", "flavor", "min", "reactive"]
+    available_modes = ["basic", "approach", "adaptive", "sequence", "multi", "max", "default", "flavor", "min", "reactive"]
     current_mode = config.get("scaling", {}).get("active_mode", "basic")
 
     logger.info(f"Current mode: {current_mode}")
@@ -764,6 +761,7 @@ def cmd_change_mode(config, logger) -> int:
     # For interactive mode, prompt the user
     try:
         import sys
+
         if sys.stdin.isatty():
             # Interactive mode
             user_input = input("Enter new mode: ").strip().lower()
@@ -772,10 +770,13 @@ def cmd_change_mode(config, logger) -> int:
                 config["scaling"]["active_mode"] = user_input
                 # Save config
                 from autoscaling.config.validator import validate_config
+
                 is_valid, errors, warnings = validate_config(config)
                 if is_valid:
-                    loader = ConfigLoader(FILE_CONFIG_YAML)
-                    loader.save(config)
+                    import yaml
+
+                    with open(FILE_CONFIG_YAML, "w", encoding="utf8") as f:
+                        yaml.dump(config, f)
                     logger.info(f"Mode changed to: {user_input}")
                     return 0
                 else:
@@ -826,8 +827,10 @@ def cmd_ignore_workers(config, logger) -> int:
                 logger.info("Ignored workers cleared")
 
             # Save config
-            loader = ConfigLoader(FILE_CONFIG_YAML)
-            loader.save(config)
+            import yaml
+
+            with open(FILE_CONFIG_YAML, "w", encoding="utf8") as f:
+                yaml.dump(config, f)
             return 0
         else:
             logger.info("Run without stdin to enable interactive mode")
@@ -898,7 +901,9 @@ def cmd_rescale(config, logger) -> int:
         scale_delay=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("scale_delay", 60),
         worker_cool_down=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("worker_cool_down", 60),
         limit_memory=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_memory", 0),
-        limit_worker_starts=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_worker_starts", 0),
+        limit_worker_starts=scaling_config.get("mode", {})
+        .get(scaling_config.get("active_mode", "basic"), {})
+        .get("limit_worker_starts", 0),
         limit_workers=scaling_config.get("mode", {}).get(scaling_config.get("active_mode", "basic"), {}).get("limit_workers", 0),
         worker_count=len(in_use) + len(free),
         worker_in_use=in_use,
@@ -919,7 +924,7 @@ def cmd_rescale(config, logger) -> int:
     cluster_api = ClusterAPI(scaling_link, cluster_id, password_file)
 
     # Execute scaling action
-    if action.upscale and action.upscale_count > 0:
+    if action.upscale and action.upscale_count > 0 and action.upscale_flavor:
         logger.info(f"Upscaling: {action.upscale_count} workers of flavor {action.upscale_flavor}")
         result = cluster_api.scale_up(action.upscale_flavor, action.upscale_count)
         if not result:
@@ -936,7 +941,9 @@ def cmd_rescale(config, logger) -> int:
         return 0
 
     # Run rescale (Ansible playbook)
-    worker_count = len(in_use) + len(free) + (action.upscale_count if action.upscale else -len(action.downscale_workers) if action.downscale else 0)
+    worker_count = (
+        len(in_use) + len(free) + (action.upscale_count if action.upscale else -len(action.downscale_workers) if action.downscale else 0)
+    )
     rescale_cluster(scheduler, cluster_api, worker_count)
     return 0
 
@@ -954,8 +961,6 @@ def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> int:
     Returns:
         True if successful
     """
-    from autoscaling.cloud.ansible import AnsibleRunner
-    import time
 
     if worker_count == 0:
         time.sleep(10)  # WAIT_CLUSTER_SCALING
@@ -1038,6 +1043,7 @@ def cmd_run_playbook(config, logger) -> int:
     logger.info("Run Ansible playbook")
     try:
         from autoscaling.cloud.ansible import AnsibleRunner
+
         ansible_runner = AnsibleRunner()
         if ansible_runner.run():
             logger.info("Ansible playbook executed successfully")
@@ -1071,6 +1077,7 @@ def cmd_check_workers(logger) -> int:
         return 1
 
     from autoscaling.cluster.api import ClusterAPI
+
     cluster_api = ClusterAPI(scaling_link, cluster_id)
     cluster_data = cluster_api.get_cluster_data()
 
@@ -1236,6 +1243,7 @@ def cmd_visualize(time_range: str, logger) -> int:
     """
     logger.info(f"Visualize cluster data: {time_range}")
     from autoscaling.visualization.plots import ClusterVisualizer
+
     try:
         visualizer = ClusterVisualizer()
         visualizer.visualize(time_range)
@@ -1258,11 +1266,23 @@ def cmd_set_password(logger) -> int:
     """
     logger.info("Set cluster password")
     from autoscaling.utils.helpers import set_cluster_password
-    if set_cluster_password():
-        logger.info("Password set successfully")
-        return 0
-    else:
-        logger.error("Failed to set password")
+
+    try:
+        import sys
+
+        if sys.stdin.isatty():
+            password = input("Enter cluster password: ").strip()
+            if password and set_cluster_password(password):
+                logger.info("Password set successfully")
+                return 0
+            else:
+                logger.error("Failed to set password")
+                return 1
+        else:
+            logger.info("Run without stdin to enable interactive mode")
+            return 0
+    except Exception as e:
+        logger.error(f"Failed to set password: {e}")
         return 1
 
 

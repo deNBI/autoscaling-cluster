@@ -2,14 +2,13 @@
 Scaling engine for autoscaling.
 Contains the core scaling decision logic.
 """
-import math
+
 from typing import Optional
 
 from autoscaling.core.state import (
-    ScalingContext,
     ScalingAction,
+    ScalingContext,
     WorkerResource,
-    ScaleState,
 )
 
 
@@ -83,14 +82,10 @@ class ScalingEngine:
             return ScalingAction.noop_action("No flavor selected")
 
         # Calculate how many workers we need
-        upscale_limit = self._calculate_upscale_limit(
-            selected_flavor, len(pending_jobs)
-        )
+        upscale_limit = self._calculate_upscale_limit(selected_flavor, len(pending_jobs))
 
         if upscale_limit <= 0:
-            return ScalingAction.noop_action(
-                "Upscale limit is zero or negative"
-            )
+            return ScalingAction.noop_action("Upscale limit is zero or negative")
 
         return ScalingAction.upscale_action(
             flavor=selected_flavor["flavor"]["name"],
@@ -138,9 +133,7 @@ class ScalingEngine:
             return None
 
         # Sort by memory requirement (descending)
-        sorted_jobs = sorted(
-            jobs, key=lambda j: j.get("req_mem", 0), reverse=True
-        )
+        sorted_jobs = sorted(jobs, key=lambda j: j.get("req_mem", 0), reverse=True)
         return sorted_jobs[0]
 
     def _get_compatible_flavors(self, job: dict) -> list[dict]:
@@ -208,9 +201,7 @@ class ScalingEngine:
 
         return smallest
 
-    def _calculate_upscale_limit(
-        self, flavor: dict, pending_count: int
-    ) -> int:
+    def _calculate_upscale_limit(self, flavor: dict, pending_count: int) -> int:
         """
         Calculate the number of workers to scale up.
 
@@ -241,17 +232,15 @@ class ScalingEngine:
         # Memory limit
         if self.context.limit_memory > 0:
             fv_memory = fv.get("ram_gib", 0) * 1024  # GB to MB
-            available_memory = (
-                self.context.limit_memory
-                - (self.context.worker_count * fv_memory)
-            )
+            available_memory = self.context.limit_memory - (self.context.worker_count * fv_memory)
             memory_limit = max(int(available_memory / fv_memory), 0)
             limit = min(limit, memory_limit)
 
         # Flavor availability limit
         flavor_count = fv.get("available", float("inf"))
-        limit = min(limit, flavor_count)
+        limit = min(limit, int(flavor_count))
 
+        assert isinstance(limit, int)
         return limit
 
     def _get_workers_to_scale_down(self) -> list[str]:
@@ -262,16 +251,13 @@ class ScalingEngine:
             List of worker hostnames
         """
         # Get all workers
-        all_workers = self.context.worker_in_use + self.context.worker_free
+        self.context.worker_in_use + self.context.worker_free
 
         # Exclude draining workers
         draining = set(self.context.worker_drain)
 
         # Get free workers (workers that are not in use and not draining)
-        free_workers = [
-            w for w in self.context.worker_free
-            if w not in draining
-        ]
+        free_workers = [w for w in self.context.worker_free if w not in draining]
 
         return free_workers
 

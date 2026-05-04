@@ -2,6 +2,7 @@
 Visualization utilities for autoscaling.
 Creates plots and charts from cluster data.
 """
+
 import calendar
 import os
 from datetime import datetime
@@ -102,9 +103,7 @@ class ClusterVisualizer:
             print(f"Error loading CSV: {e}")
             return None
 
-    def _apply_time_range(
-        self, df: pd.DataFrame, time_range: str
-    ) -> pd.DataFrame:
+    def _apply_time_range(self, df: pd.DataFrame, time_range: str) -> pd.DataFrame:
         """
         Apply time range filter to DataFrame.
 
@@ -344,4 +343,4 @@ def visualize_cluster_data(
         Path to generated PDF or None
     """
     visualizer = ClusterVisualizer(csv_file=csv_file)
-    return visualizer.visual(time_range=time_range, output_file=output_file)
+    return visualizer.visualize(time_range=time_range, output_file=output_file)

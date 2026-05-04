@@ -2,6 +2,7 @@
 Flavor handling for autoscaling.
 Provides flavor filtering, sorting, and matching functionality.
 """
+
 from typing import Optional
 
 # Constants
@@ -46,9 +47,7 @@ def flavor_mod_gpu(flavors_data: list[dict], gpu_mode: int) -> list[dict]:
     for fv_data in flavors_data:
         gpu_count = fv_data.get("flavor", {}).get("gpu", 0)
 
-        if gpu_mode == FLAVOR_GPU_ONLY and gpu_count == 0:
-            removed_flavors.append(fv_data.get("flavor", {}).get("name"))
-        elif gpu_mode == FLAVOR_GPU_REMOVE and gpu_count != 0:
+        if gpu_mode == FLAVOR_GPU_ONLY and gpu_count == 0 or gpu_mode == FLAVOR_GPU_REMOVE and gpu_count != 0:
             removed_flavors.append(fv_data.get("flavor", {}).get("name"))
         else:
             flavors_data_mod.append(fv_data)

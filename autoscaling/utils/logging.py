@@ -1,10 +1,10 @@
 """
 Logging utilities for autoscaling.
 """
+
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from typing import Optional
 
 
 def setup_logger(
@@ -32,15 +32,11 @@ def setup_logger(
     logger.handlers = []
 
     # Create formatter
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Create file handler with rotation
     os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
-    file_handler = RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count
-    )
+    file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count)
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -48,9 +44,7 @@ def setup_logger(
     # Create console handler
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
-    console_formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(message)s"
-    )
+    console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 

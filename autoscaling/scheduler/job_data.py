@@ -2,7 +2,6 @@
 Job data handling for autoscaling scheduler.
 Provides functions to receive and process job data from the scheduler.
 """
-from typing import Optional
 
 from autoscaling.scheduler.interface import SchedulerInterface, SchedulerJobState
 
@@ -24,8 +23,9 @@ def receive_job_data(scheduler: SchedulerInterface) -> tuple[dict, dict]:
 
     if job_live_dict:
         for j_key, j_val in job_live_dict.items():
+            j_current: dict = {}
             if isinstance(j_val, SchedulerJobState):
-                j_val = {
+                j_current = {
                     "jobid": j_val.jobid,
                     "state": j_val.state,
                     "state_str": j_val.state_str,
@@ -38,18 +38,19 @@ def receive_job_data(scheduler: SchedulerInterface) -> tuple[dict, dict]:
                     "elapsed": j_val.elapsed,
                     "comment": j_val.comment,
                 }
+                assert isinstance(j_current, dict)
+            else:
+                j_current = j_val if isinstance(j_val, dict) else {}
 
-            if j_val.get("state") == 0:  # PENDING
-                jobs_pending_dict.update({j_key: j_val})
-            elif j_val.get("state") == 1:  # RUNNING
-                jobs_running_dict.update({j_key: j_val})
+            if j_current.get("state") == 0:  # PENDING
+                jobs_pending_dict.update({j_key: j_current})
+            elif j_current.get("state") == 1:  # RUNNING
+                jobs_running_dict.update({j_key: j_current})
 
     return jobs_pending_dict, jobs_running_dict
 
 
-def receive_completed_job_data(
-    scheduler: SchedulerInterface, days: int
-) -> dict:
+def receive_completed_job_data(scheduler: SchedulerInterface, days: int) -> dict:
     """
     Return completed jobs from the last x days.
 
@@ -68,10 +69,7 @@ def receive_completed_job_data(
         # Filter for completed jobs only
         for key in list(jobs_dict.keys()):
             job_data = jobs_dict[key]
-            if isinstance(job_data, SchedulerJobState):
-                job_state = job_data.state
-            else:
-                job_state = job_data.get("state", -1)
+            job_state = job_data.state if isinstance(job_data, SchedulerJobState) else job_data.get("state", -1)
 
             if job_state != JOB_FINISHED:
                 del jobs_dict[key]
@@ -83,9 +81,7 @@ def receive_completed_job_data(
                 return 0  # SchedulerJobState doesn't have end time
             return job_data.get("end", 0)
 
-        jobs_dict = dict(
-            sorted(jobs_dict.items(), key=get_end_time, reverse=False)
-        )
+        jobs_dict = dict(sorted(jobs_dict.items(), key=get_end_time, reverse=False))
 
     if jobs_dict is None:
         jobs_dict = {}
@@ -100,11 +96,11 @@ def print_job_data(job_data: list) -> None:
     Args:
         job_data: List of (job_id, job_data) tuples
     """
-    for job_id, job_data in job_data:
-        if isinstance(job_data, SchedulerJobState):
-            print(f"Job {job_id}: {job_data.state_str} - {job_data.jobname}")
+    for job_id, job_info in job_data:
+        if isinstance(job_info, SchedulerJobState):
+            print(f"Job {job_id}: {job_info.state_str} - {job_info.jobname}")
         else:
-            print(f"Job {job_id}: {job_data.get('state_str', 'UNKNOWN')} - {job_data.get('jobname', 'unknown')}")
+            print(f"Job {job_id}: {job_info.get('state_str', 'UNKNOWN')} - {job_info.get('jobname', 'unknown')}")
 
 
 def sort_jobs(jobs_pending_dict: dict, config_mode: dict) -> list:
@@ -139,6 +135,7 @@ def sort_job_priority(jobs_dict: dict) -> list:
     Returns:
         Job list sorted by priority (high priority at the top)
     """
+
     def sort_key(item):
         job = item[1]
         if isinstance(job, SchedulerJobState):
@@ -172,6 +169,7 @@ def sort_job_by_resources(jobs_dict: dict) -> list:
     Returns:
         Job list sorted by resources (high resources at the top)
     """
+
     def sort_key(item):
         job = item[1]
         if isinstance(job, SchedulerJobState):

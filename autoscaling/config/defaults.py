@@ -1,6 +1,7 @@
 """
 Default configuration values for autoscaling.
 """
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -14,6 +15,7 @@ class ModeDefaults:
     """
     Default values for each scaling mode.
     """
+
     info: str = ""
     service_frequency: int = 60
     limit_memory: int = 0
@@ -54,6 +56,7 @@ class GlobalDefaults:
     """
     Global default values.
     """
+
     # Portal configuration
     portal_scaling_link: str = "https://simplevm.denbi.de/portal/api/autoscaling/"
     portal_webapp_link: str = "https://simplevm.denbi.de/portal/webapp/#/clusters/overview"
@@ -70,7 +73,7 @@ class GlobalDefaults:
     database_reset: bool = False
     pattern_id: str = ""
     history_recall: int = 7
-    ignore_workers: list = None
+    ignore_workers: Optional[list[str]] = None
     pending_jobs_percent: float = 1.0
     resource_sorting: bool = True
 
@@ -111,7 +114,7 @@ MODE_DEFAULTS = {
         limit_memory=0,
         limit_worker_starts=10,
         limit_workers=0,
-        limit_flavor_usage=None,
+        limit_flavor_usage={},
         scale_force=0.6,
         scale_delay=60,
         worker_cool_down=60,

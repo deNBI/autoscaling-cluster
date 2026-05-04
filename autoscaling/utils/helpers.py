@@ -1,11 +1,12 @@
 """
 Helper utilities for autoscaling.
 """
+
 import hashlib
 import json
-import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
+from datetime import timedelta as _timedelta
 from typing import Optional
 
 import yaml
@@ -31,7 +32,7 @@ def get_datetime() -> datetime:
     return datetime.utcnow()
 
 
-def timedelta(**kwargs) -> timedelta:
+def create_timedelta(**kwargs) -> _timedelta:
     """
     Create a timedelta.
 
@@ -41,7 +42,7 @@ def timedelta(**kwargs) -> timedelta:
     Returns:
         timedelta instance
     """
-    return timedelta(**kwargs)
+    return _timedelta(**kwargs)
 
 
 def generate_hash(file_path: str) -> str:
@@ -266,9 +267,11 @@ def read_json_file(file_path: str) -> Optional[dict]:
         JSON content as dictionary or None on error
     """
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (IOError, json.JSONDecodeError):
+        with open(file_path, encoding="utf-8") as f:
+            result = json.load(f)
+            assert isinstance(result, dict)
+            return result
+    except (OSError, json.JSONDecodeError):
         return None
 
 
@@ -287,7 +290,7 @@ def save_json_file(file_path: str, content: dict) -> bool:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(content, f, ensure_ascii=False, indent=4)
         return True
-    except IOError:
+    except OSError:
         return False
 
 
@@ -302,8 +305,10 @@ def read_yaml_file(file_path: str) -> Optional[dict]:
         YAML content as dictionary or None on error
     """
     try:
-        with open(file_path, "r", encoding="utf8") as stream:
-            return yaml.safe_load(stream)
+        with open(file_path, encoding="utf8") as stream:
+            result = yaml.safe_load(stream)
+            assert isinstance(result, dict)
+            return result
     except (yaml.YAMLError, OSError):
         return None
 

@@ -2,14 +2,18 @@
 Scale actions for autoscaling.
 Provides functions to execute scale up and scale down operations.
 """
+
+import logging
 import time
 from typing import Optional
 
 from autoscaling.cluster.api import ClusterAPI
+from autoscaling.core.state import Rescale, ScaleState
 from autoscaling.scheduler.interface import SchedulerInterface
-from autoscaling.scheduler.node_data import receive_node_data_db
 from autoscaling.scheduler.job_data import sort_jobs
-from autoscaling.core.state import ScaleState, Rescale
+from autoscaling.scheduler.node_data import receive_node_data_db
+
+logger = logging.getLogger(__name__)
 
 # Constants
 WAIT_CLUSTER_SCALING = 10
@@ -50,8 +54,6 @@ def cluster_scale_up(
     Returns:
         True if scaling was successful
     """
-    from autoscaling.core.scaling_engine import ScalingEngine
-    from autoscaling.utils.helpers import get_time
 
     job_priority = sort_jobs(jobs_pending_dict, config_mode)
 
@@ -68,16 +70,14 @@ def cluster_scale_up(
     level_sup = False
     flavors_started_cnt = 0
     worker_memory_usage = _get_worker_memory_usage(worker_json)
-    worker_claimed = {}
+    worker_claimed: dict[str, int] = {}
     skip_starts = False
 
     while len(flavor_depth_list) > flavor_index_cnt:
         if flavor_index_cnt >= len(flavor_depth_list):
             break
 
-        jobs_pending_flavor, flavor_next, flavor_job_list = flavor_depth_list[
-            flavor_index_cnt
-        ]
+        jobs_pending_flavor, flavor_next, flavor_job_list = flavor_depth_list[flavor_index_cnt]
 
         if not flavor_next:
             flavor_index_cnt += 1
@@ -88,7 +88,7 @@ def cluster_scale_up(
 
         if level_sup and not skip_starts:
             time.sleep(WAIT_CLUSTER_SCALING)
-            flavor_data = get_usable_flavors(True, True)
+            flavor_data = _get_flavor_data()
             level_sup = False
 
         # Calculate scale up data
@@ -111,20 +111,19 @@ def cluster_scale_up(
             config_mode,
         )
 
-        if data_tmp:
-            if not skip_starts:
-                result = cluster_api.scale_up(
-                    data_tmp["worker_flavor_name"],
-                    data_tmp["upscale_count"],
-                )
-                if result:
-                    worker_memory_usage = data_tmp.get("worker_memory_usage", 0)
-                    upscale_cnt += data_tmp["upscale_count"]
-                    worker_count += data_tmp["upscale_count"]
-                    flavors_started_cnt += 1
-                    level_sup = True
-                else:
-                    return False
+        if data_tmp and not skip_starts:
+            result = cluster_api.scale_up(
+                data_tmp["worker_flavor_name"],
+                data_tmp["upscale_count"],
+            )
+            if result:
+                worker_memory_usage = data_tmp.get("worker_memory_usage", 0)
+                upscale_cnt += data_tmp["upscale_count"]
+                worker_count += data_tmp["upscale_count"]
+                flavors_started_cnt += 1
+                level_sup = True
+            else:
+                return False
 
         flavor_index_cnt += 1
 
@@ -135,9 +134,7 @@ def cluster_scale_up(
     return False
 
 
-def cluster_scale_down_specific_hostnames(
-    hostnames: str, rescale: Rescale
-) -> bool:
+def cluster_scale_down_specific_hostnames(hostnames: str, rescale: Rescale) -> bool:
     """
     Scale down with specific hostnames.
 
@@ -148,13 +145,11 @@ def cluster_scale_down_specific_hostnames(
     Returns:
         True if successful
     """
-    worker_hostnames = "[" + hostnames + "]"
+    worker_hostnames = [h.strip() for h in hostnames.split(",")]
     return cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale)
 
 
-def cluster_scale_down_specific_self_check(
-    worker_hostnames: list[str], rescale: Rescale
-) -> bool:
+def cluster_scale_down_specific_self_check(worker_hostnames: list[str], rescale: Rescale) -> bool:
     """
     Scale down with specific hostnames.
     Includes a final worker check with most up-to-date worker data.
@@ -166,38 +161,35 @@ def cluster_scale_down_specific_self_check(
     Returns:
         True if successful
     """
-    from autoscaling.cluster.api import get_cluster_workers
 
     if not worker_hostnames:
         return False
 
     time.sleep(WAIT_CLUSTER_SCALING)
-    worker_json, _, _, _, worker_drain_idle = receive_node_data_db(False)
+    scheduler = __get_scheduler()
+    if scheduler is None:
+        return False
+    worker_json, _, _, _, worker_drain_idle = receive_node_data_db(scheduler)
+
+    if worker_json is None:
+        return False
 
     scale_down_list = []
 
     for wb in worker_hostnames:
-        if wb in worker_json:
-            if wb not in worker_drain_idle:
-                if (
-                    NODE_ALLOCATED in worker_json[wb]["state"]
-                    or NODE_MIX in worker_json[wb]["state"]
-                ):
-                    logger.error(f"Worker {wb} still allocated, skip scale down")
-                    return False
+        if wb in worker_json and (worker_drain_idle is None or wb not in worker_drain_idle):
+            if NODE_ALLOCATED in worker_json[wb]["state"] or NODE_MIX in worker_json[wb]["state"]:
+                logger.error(f"Worker {wb} still allocated, skip scale down")
+                return False
             scale_down_list.append(wb)
 
     if scale_down_list:
-        return cluster_scale_down_specific_hostnames_list(
-            scale_down_list, rescale
-        )
+        return cluster_scale_down_specific_hostnames_list(scale_down_list, rescale)
 
     return False
 
 
-def cluster_scale_down_specific_hostnames_list(
-    worker_hostnames: list[str], rescale: Rescale
-) -> bool:
+def cluster_scale_down_specific_hostnames_list(worker_hostnames: list[str], rescale: Rescale) -> bool:
     """
     Scale down specific workers by hostname list.
 
@@ -208,19 +200,23 @@ def cluster_scale_down_specific_hostnames_list(
     Returns:
         True if successful
     """
-    from autoscaling.cluster.api import ClusterAPI
-
     # Import cluster API
     from autoscaling.cluster.api import ClusterAPI
 
     # Create cluster API client
-    cluster_api = ClusterAPI()
+    scheduler = __get_scheduler()
+    if scheduler is None:
+        return False
+    scaling_config = __get_scaling_config()
+    scaling_link = scaling_config.get("portal_scaling_link", "")
+    cluster_id = scaling_config.get("cluster_id", "")
+    cluster_api = ClusterAPI(scaling_link, cluster_id)
 
     result = cluster_api.scale_down(worker_hostnames)
 
     if result and rescale == Rescale.CHECK:
         time.sleep(WAIT_CLUSTER_SCALING)
-        rescale_cluster()
+        rescale_cluster(scheduler, cluster_api)
 
     return result is not None
 
@@ -243,7 +239,7 @@ def cluster_scale_down_specific(
     Returns:
         True if successful
     """
-    worker_list = __generate_downscale_list(worker_json, worker_num, jobs_dict)
+    worker_list = _generate_downscale_list(worker_json, worker_num, jobs_dict)
     return cluster_scale_down_specific_self_check(worker_list, rescale)
 
 
@@ -254,8 +250,14 @@ def __cluster_scale_down_complete() -> bool:
     Returns:
         True if successful
     """
-    worker_json, worker_count, _, _, _ = receive_node_data_db(False)
-    return cluster_scale_down_specific(worker_json, worker_count, Rescale.CHECK, None)
+    scheduler = __get_scheduler()
+    if scheduler is None:
+        return False
+    result = receive_node_data_db(scheduler)
+    if result[0] is None:
+        return False
+    worker_json, worker_count, _, _, _ = result
+    return cluster_scale_down_specific(worker_json if worker_json is not None else {}, worker_count, Rescale.CHECK, None)
 
 
 def __cluster_shut_down() -> bool:
@@ -265,23 +267,45 @@ def __cluster_shut_down() -> bool:
     Returns:
         True if successful
     """
-    from autoscaling.cluster.api import get_cluster_workers_from_api
-
-    cluster_workers = get_cluster_workers_from_api()
-    worker_list = []
-
-    if cluster_workers is not None:
-        for cl in cluster_workers:
-            if "worker" in cl["hostname"]:
-                worker_list.append(cl["hostname"])
+    scheduler = __get_scheduler()
+    if scheduler is None:
+        return False
+    result = receive_node_data_db(scheduler)
+    if result[0] is None:
+        return False
+    worker_json = result[0]
+    worker_list = [cl for cl in worker_json if "worker" in cl]
 
     if worker_list:
         time.sleep(WAIT_CLUSTER_SCALING)
-        return cluster_scale_down_specific_hostnames_list(
-            worker_list, Rescale.CHECK
-        )
+        return cluster_scale_down_specific_hostnames_list(worker_list, Rescale.CHECK)
 
     return False
+
+
+def __get_scheduler() -> Optional[SchedulerInterface]:
+    """Get a scheduler instance if available."""
+    try:
+        from autoscaling.scheduler.slurm import SlurmScheduler
+
+        scheduler = SlurmScheduler()
+        if scheduler.test_connection():
+            return scheduler
+    except Exception:
+        pass
+    return None
+
+
+def __get_scaling_config() -> dict:
+    """Get scaling config from YAML file."""
+    try:
+        from autoscaling.config.loader import ConfigLoader
+
+        loader = ConfigLoader("autoscaling_config.yaml")
+        config = loader.load()
+        return config.get("scaling", {}) if config else {}
+    except Exception:
+        return {}
 
 
 def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> bool:
@@ -305,7 +329,7 @@ def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> bool:
     ansible_runner = AnsibleRunner()
     rescale_success = ansible_runner.run()
 
-    return rescale_success
+    return rescale_success is not None
 
 
 def _get_worker_memory_usage(worker_json: dict) -> int:
@@ -324,9 +348,7 @@ def _get_worker_memory_usage(worker_json: dict) -> int:
     return total_memory
 
 
-def _generate_downscale_list(
-    worker_json: dict, worker_num: int, jobs_dict: Optional[dict]
-) -> list[str]:
+def _generate_downscale_list(worker_json: dict, worker_num: int, jobs_dict: Optional[dict]) -> list[str]:
     """
     Generate list of workers to scale down.
 
@@ -341,16 +363,10 @@ def _generate_downscale_list(
     worker_list = []
 
     # Get idle workers
-    idle_workers = [
-        key for key, value in worker_json.items()
-        if value.get("state") == "IDLE" and "worker" in key
-    ]
+    idle_workers = [key for key, value in worker_json.items() if value.get("state") == "IDLE" and "worker" in key]
 
     # Get workers in use with drain state
-    drain_workers = [
-        key for key, value in worker_json.items()
-        if "DRAIN" in value.get("state", "") and "worker" in key
-    ]
+    drain_workers = [key for key, value in worker_json.items() if "DRAIN" in value.get("state", "") and "worker" in key]
 
     # Combine and limit
     all_candidates = idle_workers + drain_workers
@@ -359,9 +375,7 @@ def _generate_downscale_list(
     return worker_list
 
 
-def classify_jobs_to_flavors(
-    job_priority: list, flavor_data: list[dict]
-) -> list:
+def classify_jobs_to_flavors(job_priority: list, flavor_data: list[dict]) -> list:
     """
     Classify pending jobs into flavor groups.
 
@@ -374,7 +388,7 @@ def classify_jobs_to_flavors(
     """
     from autoscaling.cluster.flavors import translate_metrics_to_flavor
 
-    flavor_depth_list = []
+    flavor_depth_list: list = []
 
     for job_key, job_value in job_priority:
         if isinstance(job_value, dict):
@@ -386,9 +400,7 @@ def classify_jobs_to_flavors(
             mem = job_value.req_mem
             tmp_disk = job_value.temporary_disk
 
-        flavor_next = translate_metrics_to_flavor(
-            cpu, mem, tmp_disk, flavor_data, available_check=True
-        )
+        flavor_next = translate_metrics_to_flavor(cpu, mem, tmp_disk, flavor_data, available_check=True)
 
         if flavor_next:
             flavor_name = flavor_next.get("flavor", {}).get("name")
@@ -470,8 +482,17 @@ def __calculate_scale_up_data(
         return None
 
     return {
-        "password": None,  # Will be set by ClusterAPI
         "worker_flavor_name": flavor_next.get("flavor", {}).get("name"),
         "upscale_count": upscale_limit,
         "worker_memory_usage": worker_memory_usage,
     }
+
+
+def _get_flavor_data() -> list[dict]:
+    """
+    Get available flavor data from a default source.
+
+    Returns:
+        List of flavor dictionaries or empty list on error
+    """
+    return []

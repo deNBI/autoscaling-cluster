@@ -1,6 +1,7 @@
 """
 Slurm scheduler implementation for autoscaling.
 """
+
 import re
 from datetime import datetime, timedelta
 from subprocess import PIPE, Popen
@@ -8,8 +9,8 @@ from typing import Optional
 
 from autoscaling.scheduler.interface import (
     SchedulerInterface,
-    SchedulerNodeState,
     SchedulerJobState,
+    SchedulerNodeState,
 )
 
 
@@ -125,12 +126,8 @@ class SlurmScheduler(SchedulerInterface):
         Returns:
             Dictionary mapping job IDs to their states, or None on error
         """
-        start_time = (
-            __utc_datetime() - __timedelta(days=days)
-        ).strftime("%Y-%m-%dT00:00:00")
-        end_time = (
-            __utc_datetime() + __timedelta(days=days)
-        ).strftime("%Y-%m-%dT00:00:00")
+        start_time = (__utc_datetime() - __timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
+        end_time = (__utc_datetime() + __timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
 
         return self.get_job_data_by_range(start_time, end_time)
 
@@ -173,12 +170,7 @@ class SlurmScheduler(SchedulerInterface):
             True if successful, False otherwise
         """
         self._log_debug(f"Draining node {node_name}")
-        cmd = [
-            "sudo", "scontrol", "update",
-            f"nodename={node_name}",
-            "state=drain",
-            "reason=REPLACE"
-        ]
+        cmd = ["sudo", "scontrol", "update", f"nodename={node_name}", "state=drain", "reason=REPLACE"]
         result = self._run_command(cmd)
         return result == 0
 
@@ -193,11 +185,7 @@ class SlurmScheduler(SchedulerInterface):
             True if successful, False otherwise
         """
         self._log_debug(f"Resuming node {node_name}")
-        cmd = [
-            "sudo", "scontrol", "update",
-            f"nodename={node_name}",
-            "state=resume"
-        ]
+        cmd = ["sudo", "scontrol", "update", f"nodename={node_name}", "state=resume"]
         result = self._run_command(cmd)
         return result == 0
 
@@ -215,10 +203,7 @@ class SlurmScheduler(SchedulerInterface):
         try:
             import pyslurm
 
-            db_filter = pyslurm.db.JobFilter(
-                start_time=start_time,
-                end_time=end_time
-            )
+            db_filter = pyslurm.db.JobFilter(start_time=start_time, end_time=end_time)
             jobs = pyslurm.db.Jobs.load(db_filter)
 
             job_dict = {}
@@ -299,10 +284,7 @@ class SlurmScheduler(SchedulerInterface):
                 free_mem = int(free_mem_str)
 
             gres = data.get("GRES", "null").replace(" ", "")
-            if "null" in gres:
-                gres = ["gpu:0"]
-            else:
-                gres = [gres]
+            gres_list: list[str] = ["gpu:0"] if "null" in gres else [gres]
 
             node_dict[data["HOSTNAMES"]] = SchedulerNodeState(
                 hostname=data["HOSTNAMES"],
@@ -311,7 +293,7 @@ class SlurmScheduler(SchedulerInterface):
                 free_memory=free_mem,
                 real_memory=int(data.get("MEMORY", 0)),
                 temporary_disk=int(data.get("TMP_DISK", 0)),
-                gres=gres,
+                gres=gres_list,
                 node_hostname=data["HOSTNAMES"],
             )
 
@@ -371,13 +353,12 @@ class SlurmScheduler(SchedulerInterface):
     def _convert_job_state(self, state: str) -> int:
         """Convert job state string to internal ID."""
         state = state.upper()
-        if state == "PENDING":
-            return self.JOB_PENDING
-        elif state == "RUNNING":
-            return self.JOB_RUNNING
-        elif state == "COMPLETED":
-            return self.JOB_COMPLETED
-        return -1
+        _state_map = {
+            "PENDING": self.JOB_PENDING,
+            "RUNNING": self.JOB_RUNNING,
+            "COMPLETED": self.JOB_COMPLETED,
+        }
+        return _state_map.get(state, -1)
 
     def _parse_memory(self, mem_str: str) -> int:
         """Parse memory string to MB."""

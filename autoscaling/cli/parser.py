@@ -1,9 +1,8 @@
 """
 Argument parser for autoscaling CLI.
 """
-import argparse
 
-from autoscaling import __version__
+import argparse
 
 
 def create_argument_parser() -> argparse.ArgumentParser:

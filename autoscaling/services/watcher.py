@@ -2,19 +2,17 @@
 Resource watcher for autoscaling.
 Monitors cluster resources and logs metrics.
 """
+
 import csv
 import os
 import time
-from datetime import datetime
 from multiprocessing import Process
 from typing import Optional
 
 from autoscaling.cloud.client import PortalClient
-from autoscaling.config.loader import ConfigLoader
 from autoscaling.data.manager import DatabaseManager
 from autoscaling.scheduler.interface import SchedulerInterface
 from autoscaling.utils.logging import setup_logger
-from autoscaling.utils.converters import convert_tb_to_mb
 
 
 class ResourceWatcher:
@@ -54,9 +52,7 @@ class ResourceWatcher:
             webapp_url=scaling_config.get("portal_webapp_link", ""),
             password_file="cluster_pw.json",
         )
-        self.db_manager = DatabaseManager(
-            scaling_config.get("database_file", "autoscaling_database.json")
-        )
+        self.db_manager = DatabaseManager(scaling_config.get("database_file", "autoscaling_database.json"))
 
         # Setup logger
         self._logger = setup_logger(log_file)
@@ -129,9 +125,7 @@ class ResourceWatcher:
         if not os.path.exists(self.csv_file) or os.path.getsize(self.csv_file) == 0:
             self._write_csv_row(self.header)
 
-    def _log_entry(
-        self, scale_marker: str, worker_change: str, reason: str
-    ) -> None:
+    def _log_entry(self, scale_marker: str, worker_change: str, reason: str) -> None:
         """
         Log a single entry to CSV.
 
@@ -148,9 +142,7 @@ class ResourceWatcher:
             jobs_pending, jobs_running = self._get_job_data()
 
             # Get worker data
-            worker_json, worker_count, worker_in_use, worker_drain = (
-                self._get_worker_data()
-            )
+            worker_json, worker_count, worker_in_use, worker_drain = self._get_worker_data()
 
             if worker_json is None:
                 self._logger.error("Failed to get worker data")
@@ -176,9 +168,7 @@ class ResourceWatcher:
                 "reason": reason,
                 "credit": credit,
                 "cluster_worker": len(cluster_worker) if cluster_worker else 0,
-                "worker_credit_data": len(worker_credit_data)
-                if worker_credit_data
-                else 0,
+                "worker_credit_data": len(worker_credit_data) if worker_credit_data else 0,
                 **usage,
             }
 
@@ -204,7 +194,7 @@ class ResourceWatcher:
             pending = []
             running = []
 
-            for job_id, job in job_data.items():
+            for _job_id, job in job_data.items():
                 if job.state == 0:  # PENDING
                     pending.append(job.__dict__)
                 elif job.state == 1:  # RUNNING
@@ -341,7 +331,7 @@ class ResourceWatcher:
             "worker_mem_mix": mem_mix_no_drain,
         }
 
-    def _get_credit_data(self) -> tuple[int, Optional[list], Optional[dict]]:
+    def _get_credit_data(self) -> tuple[int, Optional[dict], dict[str, dict]]:
         """
         Get current credit usage data.
 
@@ -349,19 +339,20 @@ class ResourceWatcher:
             Tuple of (credit_sum, cluster_workers, worker_credit_data)
         """
         try:
-            flavors = self.portal_client.get_flavors()
+            raw_flavors = self.portal_client.get_flavors()
+            flavors_list: list = raw_flavors if isinstance(raw_flavors, list) else []
             cluster_workers = self.portal_client.get_cluster_data()
 
-            credit_sum = 0
-            worker_credit_data = {}
+            credit_sum: float = 0.0
+            worker_credit_data: dict[str, dict] = {}
 
             if cluster_workers:
                 for worker in cluster_workers:
                     if worker.get("status", "").upper() == "ACTIVE":
-                        credit = self._get_worker_credit(
-                            flavors, worker.get("flavor", {})
-                        )
-                        credit_sum += credit
+                        worker_flavor = worker.get("flavor", {})
+                        if flavors_list and worker_flavor:
+                            credit = self._get_worker_credit(flavors_list, worker_flavor)
+                            credit_sum += credit
 
                         flavor_name = worker.get("flavor", {}).get("name", "")
                         if flavor_name in worker_credit_data:
@@ -372,15 +363,13 @@ class ResourceWatcher:
                                 "credit": credit,
                             }
 
-            return credit_sum, cluster_workers, worker_credit_data
+            return int(credit_sum), cluster_workers, worker_credit_data
 
         except Exception as e:
             self._logger.error(f"Error getting credit data: {e}")
-            return 0, None, None
+            return 0, None, {}
 
-    def _get_worker_credit(
-        self, flavors: list, worker_flavor: dict
-    ) -> float:
+    def _get_worker_credit(self, flavors: list, worker_flavor: dict) -> float:
         """
         Get credit cost for a worker.
 
@@ -395,8 +384,9 @@ class ResourceWatcher:
             return 0.0
 
         for flavor in flavors:
-            if flavor.get("flavor", {}).get("name") == worker_flavor.get("name"):
-                return flavor.get("flavor", {}).get("credits_costs_per_hour", 0.0)
+            name = flavor.get("flavor", {}).get("name")
+            if name == worker_flavor.get("name"):
+                return float(flavor.get("flavor", {}).get("credits_costs_per_hour", 0.0))
 
         return 0.0
 

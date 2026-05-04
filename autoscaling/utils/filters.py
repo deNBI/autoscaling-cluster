@@ -1,12 +1,9 @@
 """
 Filter utilities for autoscaling.
 """
-from typing import Optional
 
 
-def filter_by_flavor(
-    workers: dict, flavor_name: str, flavor_key: str = "flavor"
-) -> dict:
+def filter_by_flavor(workers: dict, flavor_name: str, flavor_key: str = "flavor") -> dict:
     """
     Filter workers by flavor.
 
@@ -26,9 +23,7 @@ def filter_by_flavor(
     return result
 
 
-def filter_by_state(
-    workers: dict, state: str, include_drain: bool = True
-) -> dict:
+def filter_by_state(workers: dict, state: str, include_drain: bool = True) -> dict:
     """
     Filter workers by state.
 
@@ -119,9 +114,7 @@ def filter_by_name_pattern(workers: dict, pattern: str) -> dict:
     return result
 
 
-def exclude_workers(
-    workers: dict, excluded: list[str]
-) -> dict:
+def exclude_workers(workers: dict, excluded: list[str]) -> dict:
     """
     Exclude workers by hostname.
 
@@ -133,11 +126,7 @@ def exclude_workers(
         Filtered dictionary of workers
     """
     excluded_set = set(excluded)
-    return {
-        hostname: worker
-        for hostname, worker in workers.items()
-        if hostname not in excluded_set
-    }
+    return {hostname: worker for hostname, worker in workers.items() if hostname not in excluded_set}
 
 
 def get_worker_count_by_state(workers: dict) -> dict[str, int]:

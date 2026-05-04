@@ -2,13 +2,14 @@
 Cluster API functions for autoscaling.
 Provides access to cluster and flavor data from the portal API.
 """
+
+import logging
 from typing import Optional
 
 import requests
-import logging
 
-from autoscaling.utils.logging import get_logger
 from autoscaling.cluster.exceptions import AuthError
+from autoscaling.utils.logging import get_logger
 
 # Constants
 SCALING_TYPE = "autoscaling"
@@ -67,12 +68,10 @@ class ClusterAPI:
     def _get_password(self) -> str:
         """Get cluster password from file."""
         from autoscaling.utils.helpers import get_cluster_password
+
         password = get_cluster_password(self.password_file)
         if password is None:
-            raise AuthError(
-                "Cluster password not available. "
-                "Run with -p to set password."
-            )
+            raise AuthError("Cluster password not available. " "Run with -p to set password.")
         return password
 
     def get_cluster_data(self) -> Optional[dict]:
@@ -94,7 +93,10 @@ class ClusterAPI:
 
             if response.status_code == HTTP_CODE_OK:
                 res = response.json()
-                self._version_check_scale_data(res.get("AUTOSCALING_VERSION"))
+                assert isinstance(res, dict)
+                server_ver = res.get("AUTOSCALING_VERSION")
+                if server_ver:
+                    self._version_check_scale_data(server_ver)
                 return res
             else:
                 self._handle_code_unauthorized(response)
@@ -102,6 +104,8 @@ class ClusterAPI:
         except requests.exceptions.RequestException as e:
             self._logger.error(f"Error getting cluster data: {e}")
             return None
+
+        return None
 
     def get_flavors(self) -> Optional[list[dict]]:
         """
@@ -122,11 +126,14 @@ class ClusterAPI:
 
             if response.status_code == HTTP_CODE_OK:
                 flavors_data = response.json()
+                assert isinstance(flavors_data, list)
                 return flavors_data
 
         except requests.exceptions.RequestException as e:
             self._logger.error(f"Error getting flavors: {e}")
             return None
+
+        return None
 
     def scale_up(self, flavor_name: str, count: int) -> Optional[dict]:
         """
@@ -150,7 +157,9 @@ class ClusterAPI:
         try:
             response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            assert isinstance(result, dict)
+            return result
         except requests.exceptions.RequestException as e:
             self._logger.error(f"Scale up failed: {e}")
             return None
@@ -175,7 +184,9 @@ class ClusterAPI:
         try:
             response = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            assert isinstance(result, dict)
+            return result
         except requests.exceptions.RequestException as e:
             self._logger.error(f"Scale down failed: {e}")
             return None
@@ -183,10 +194,7 @@ class ClusterAPI:
     def _version_check_scale_data(self, server_version: str) -> None:
         """Check if server version matches."""
         if server_version and server_version != AUTOSCALING_VERSION:
-            self._logger.warning(
-                f"Version mismatch: client {AUTOSCALING_VERSION}, "
-                f"server {server_version}"
-            )
+            self._logger.warning(f"Version mismatch: client {AUTOSCALING_VERSION}, " f"server {server_version}")
 
     def _handle_code_unauthorized(self, response) -> None:
         """Handle unauthorized response."""
@@ -239,13 +247,12 @@ def get_cluster_workers(cluster_data: dict) -> list[dict]:
         flavor_data = w_data.get("flavor", {})
         w_data.update(
             {
-                "memory_usable": reduce_flavor_memory(
-                    convert_mib_to_gb(flavor_data.get("ram", 0))
-                ),
+                "memory_usable": reduce_flavor_memory(convert_mib_to_gb(flavor_data.get("ram", 0))),
                 "temporary_disk": flavor_data.get("ephemeral", 0),
             }
         )
 
+    assert isinstance(cluster_workers, list)
     return cluster_workers
 
 
@@ -265,10 +272,7 @@ def reduce_flavor_memory(mem_gb: int) -> int:
     mem_border = 16001
     sub = int(mem / 16)
 
-    if mem <= mem_border:
-        sub = max(sub, mem_min)
-    else:
-        sub = min(sub, mem_max)
+    sub = max(sub, mem_min) if mem <= mem_border else min(sub, mem_max)
 
     return int(mem - sub)
 

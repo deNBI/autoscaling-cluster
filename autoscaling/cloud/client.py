@@ -2,13 +2,13 @@
 Portal API client for autoscaling.
 Provides access to the cluster management API.
 """
+
 import os
 from typing import Optional
 
 import requests
 
 from autoscaling.cloud.exceptions import APIError, AuthError
-
 
 # Constants
 SCALING_TYPE = "autoscaling"
@@ -40,7 +40,7 @@ class PortalClient:
         self.webapp_url = webapp_url.rstrip("/")
         self.password_file = password_file
         self.timeout = timeout
-        self._password = None
+        self._password: Optional[str] = None
 
     def get_cluster_data(self) -> Optional[dict]:
         """
@@ -53,7 +53,7 @@ class PortalClient:
         response = self._post(url, {})
         return response
 
-    def get_flavors(self) -> Optional[list[dict]]:
+    def get_flavors(self) -> Optional[dict]:
         """
         Get available flavors from the API.
 
@@ -112,7 +112,7 @@ class PortalClient:
             return None
 
         try:
-            with open(self.password_file, "r", encoding="utf8") as f:
+            with open(self.password_file, encoding="utf8") as f:
                 data = f.read().strip()
                 self._password = data
                 return data
@@ -132,9 +132,11 @@ class PortalClient:
         try:
             response = requests.get(url, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            assert isinstance(result, dict)
+            return result
         except requests.exceptions.RequestException as e:
-            raise APIError(f"GET request failed: {e}")
+            raise APIError(f"GET request failed: {e}") from e
 
     def _add_auth_headers(self, payload: dict) -> dict:
         """
@@ -166,13 +168,13 @@ class PortalClient:
         """
         try:
             payload = self._add_auth_headers(payload)
-            response = requests.post(
-                url, json=payload, timeout=self.timeout
-            )
+            response = requests.post(url, json=payload, timeout=self.timeout)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            assert isinstance(result, dict)
+            return result
         except requests.exceptions.RequestException as e:
-            raise APIError(f"POST request failed: {e}")
+            raise APIError(f"POST request failed: {e}") from e
 
     def get_portal_link(self) -> str:
         """
@@ -213,10 +215,7 @@ class ClusterContext:
         # Setup cluster password if needed
         password = self.client.get_cluster_password()
         if password is None:
-            raise AuthError(
-                "Cluster password not available. "
-                "Run with -p to set password."
-            )
+            raise AuthError("Cluster password not available. " "Run with -p to set password.")
         return self.client
 
     def __exit__(self, exc_type, exc_val, exc_tb):

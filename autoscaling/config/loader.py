@@ -2,14 +2,13 @@
 Configuration loader for autoscaling.
 Reads and merges configuration from environment variables, YAML files and defaults.
 """
+
 import os
-import re
-from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 
-from autoscaling.config.defaults import MODE_DEFAULTS, DEFAULTS, GlobalDefaults, ModeDefaults
+from autoscaling.config.defaults import DEFAULTS, MODE_DEFAULTS, ModeDefaults
 
 
 def _normalize_env_var_name(name: str) -> str:
@@ -41,13 +40,15 @@ def _get_env_var_value(key: str, var_type: type = str) -> Any:
         return None
 
     try:
-        if var_type == int:
+        if isinstance(env_value, int):
+            return env_value
+        if var_type is int:
             return int(env_value)
-        elif var_type == float:
+        elif var_type is float:
             return float(env_value)
-        elif var_type == bool:
+        elif var_type is bool:
             return env_value.lower() in ("true", "1", "yes")
-        elif var_type == list:
+        elif var_type is list:
             # Handle comma-separated lists
             return [item.strip() for item in env_value.split(",") if item.strip()]
         else:
@@ -58,6 +59,7 @@ def _get_env_var_value(key: str, var_type: type = str) -> Any:
 
 class ConfigError(Exception):
     """Configuration loading error."""
+
     pass
 
 
@@ -111,13 +113,13 @@ class ConfigLoader:
             return {}
 
         try:
-            with open(self.config_file, "r", encoding="utf8") as stream:
+            with open(self.config_file, encoding="utf8") as stream:
                 yaml_data = yaml.safe_load(stream)
             return yaml_data if yaml_data else {}
         except yaml.YAMLError as exc:
-            raise ConfigError(f"Error parsing YAML config: {exc}")
+            raise ConfigError(f"Error parsing YAML config: {exc}") from exc
         except OSError as exc:
-            raise ConfigError(f"Error reading config file: {exc}")
+            raise ConfigError(f"Error reading config file: {exc}") from exc
 
     def _merge_with_defaults(self, user_config: dict[str, Any]) -> dict[str, Any]:
         """
@@ -136,9 +138,7 @@ class ConfigLoader:
         result["scaling"] = self._merge_global_settings(global_config)
 
         # Merge mode settings
-        result["scaling"]["mode"] = self._merge_mode_settings(
-            global_config.get("mode", {})
-        )
+        result["scaling"]["mode"] = self._merge_mode_settings(global_config.get("mode", {}))
 
         return result
 
@@ -265,8 +265,11 @@ class ConfigLoader:
         Returns:
             Mode settings dictionary
         """
+        if self._merged_config is None:
+            return {}
         modes = self._merged_config.get("scaling", {}).get("mode", {})
-        return modes.get(mode_name, {})
+        result: dict[str, Any] = modes.get(mode_name, {})
+        return result if result else {}
 
     @property
     def raw_config(self) -> Optional[dict]:
