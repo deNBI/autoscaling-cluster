@@ -387,6 +387,79 @@ class TestDatabaseManager(unittest.TestCase):
         data = manager.load()
         self.assertIsNone(data)
 
+    def test_update_flavor_time_without_load(self):
+        """Test that update_flavor_time returns False when not loaded."""
+        manager = DatabaseManager(self.database_file)
+        # Don't load first, just save empty content
+        content = DatabaseContent(
+            metadata=DatabaseMetadata("2.0.0", "hash123", 1234567890),
+            flavor_stats={},
+        )
+        manager.save(content)
+        # Don't call load() - update should fail
+        result = manager.update_flavor_time(
+            flavor_name="test-flavor",
+            elapsed_time=3600,
+            normalized_time=1.5,
+            job_name="test-job",
+        )
+        self.assertFalse(result)
+
+    def test_get_flavor_stats_without_load(self):
+        """Test that get_flavor_stats returns None when not loaded."""
+        manager = DatabaseManager(self.database_file)
+        stats = manager.get_flavor_stats("test-flavor")
+        self.assertIsNone(stats)
+
+    def test_fuzzy_match_exact(self):
+        """Test _fuzzy_match with exact match."""
+        manager = DatabaseManager(self.database_file)
+        self.assertTrue(manager._fuzzy_match("test", "test", 0.95))
+
+    def test_fuzzy_match_similar(self):
+        """Test _fuzzy_match with similar strings."""
+        manager = DatabaseManager(self.database_file)
+        # "test-job" and "test-job-1" share 8 chars out of 10 = 80%
+        self.assertTrue(manager._fuzzy_match("test-job", "test-job-1", 0.75))
+
+    def test_fuzzy_match_different(self):
+        """Test _fuzzy_match with different strings."""
+        manager = DatabaseManager(self.database_file)
+        self.assertFalse(manager._fuzzy_match("test-job", "other-job", 0.95))
+
+    def test_fuzzy_match_empty_strings(self):
+        """Test _fuzzy_match with empty strings."""
+        manager = DatabaseManager(self.database_file)
+        self.assertTrue(manager._fuzzy_match("", "", 0.95))
+
+    def test_normalize_flavor_name_ephemeral(self):
+        """Test _normalize_flavor_name with ephemeral suffix."""
+        manager = DatabaseManager(self.database_file)
+        normalized = manager._normalize_flavor_name("test-flavor ephemeral")
+        self.assertEqual(normalized, "test-flavor")
+
+    def test_normalize_flavor_name_no_change(self):
+        """Test _normalize_flavor_name without ephemeral suffix."""
+        manager = DatabaseManager(self.database_file)
+        normalized = manager._normalize_flavor_name("test-flavor")
+        self.assertEqual(normalized, "test-flavor")
+
+    def test_update_metadata_without_load(self):
+        """Test that update_metadata returns False when not loaded."""
+        manager = DatabaseManager(self.database_file)
+        result = manager.update_metadata("2.0.0", "newhash")
+        self.assertFalse(result)
+
+    def test_reset_without_load(self):
+        """Test that reset works when not loaded."""
+        manager = DatabaseManager(self.database_file)
+        result = manager.reset()
+        self.assertTrue(result)
+        # After reset, we should have empty data
+        loaded = manager.load()
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.metadata.version, "")
+
 
 class TestDatabaseIntegration(unittest.TestCase):
     """Integration tests for database operations."""

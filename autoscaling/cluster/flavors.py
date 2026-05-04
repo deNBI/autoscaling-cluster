@@ -157,13 +157,13 @@ def translate_metrics_to_flavor(
             continue
 
         # Check ephemeral disk
-        fv_tmp_disk = fv.get("temporary_disk", 0)
+        fv_tmp_disk = fv.get("temporary_disk", fv.get("ephemeral_disk", 0))
         if fv_tmp_disk < tmp_disk:
             continue
 
         # Check availability if required
         if available_check:
-            available_count = fd.get("usable_count", 0)
+            available_count = fv.get("usable_count", 0)
             if available_count <= 0:
                 continue
 

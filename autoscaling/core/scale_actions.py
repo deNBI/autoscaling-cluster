@@ -67,7 +67,7 @@ def cluster_scale_up(
     flavor_index_cnt = 0
     level_sup = False
     flavors_started_cnt = 0
-    worker_memory_usage = __get_worker_memory_usage(worker_json)
+    worker_memory_usage = _get_worker_memory_usage(worker_json)
     worker_claimed = {}
     skip_starts = False
 
@@ -308,7 +308,7 @@ def rescale_cluster(scheduler, cluster_api, worker_count: int = 0) -> bool:
     return rescale_success
 
 
-def __get_worker_memory_usage(worker_json: dict) -> int:
+def _get_worker_memory_usage(worker_json: dict) -> int:
     """
     Get total memory usage from workers.
 
@@ -324,7 +324,7 @@ def __get_worker_memory_usage(worker_json: dict) -> int:
     return total_memory
 
 
-def __generate_downscale_list(
+def _generate_downscale_list(
     worker_json: dict, worker_num: int, jobs_dict: Optional[dict]
 ) -> list[str]:
     """

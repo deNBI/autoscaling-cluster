@@ -129,7 +129,7 @@ class ScalingAction:
 
     # Scale down
     downscale: bool = False
-    downscale_workers: list[str] = None
+    downscale_workers: list[str] = field(default_factory=list)
 
     # Reason for action
     reason: str = ""

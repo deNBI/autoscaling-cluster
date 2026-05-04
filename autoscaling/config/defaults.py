@@ -1,8 +1,12 @@
 """
 Default configuration values for autoscaling.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
+# Type aliases for better readability
+FlavorNameList = list[str]
+FlavorUsageDict = dict[str, int]
 
 
 @dataclass
@@ -15,8 +19,8 @@ class ModeDefaults:
     limit_memory: int = 0
     limit_worker_starts: int = 10
     limit_workers: int = 0
-    allowed_flavor_names: list = None  # empty list = allow all flavors
-    limit_flavor_usage: dict = None
+    allowed_flavor_names: list[str] = field(default_factory=list)
+    limit_flavor_usage: dict[str, int] = field(default_factory=dict)
     scale_force: float = 0.6
     scale_delay: int = 60
     worker_cool_down: int = 60
@@ -43,12 +47,6 @@ class ModeDefaults:
     drain_large_nodes: bool = False
     drain_only_hmf: bool = False
     drain_delay: int = 0
-
-    def __post_init__(self):
-        if self.allowed_flavor_names is None:
-            self.allowed_flavor_names = []
-        if self.limit_flavor_usage is None:
-            self.limit_flavor_usage = {}
 
 
 @dataclass

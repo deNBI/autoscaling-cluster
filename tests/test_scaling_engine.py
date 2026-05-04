@@ -408,6 +408,285 @@ class TestScalingEngineUpscaleLimit(unittest.TestCase):
         # Memory limit: 12288 / 4096 = 3
         self.assertEqual(limit, 3)
 
+    def test_calculate_scaling_with_draining_workers(self):
+        """Test scaling with draining workers excluded from downscale."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=3,
+            worker_in_use=[],
+            worker_drain=["worker-1"],
+            worker_free=["worker-1", "worker-2"],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        action = engine.calculate_scaling()
+        # worker-1 is draining, so only worker-2 should be in downscale list
+        if action.downscale:
+            self.assertNotIn("worker-1", action.downscale_workers)
+            self.assertIn("worker-2", action.downscale_workers)
+
+    def test_calculate_scaling_with_no_jobs(self):
+        """Test scaling when no jobs exist at all."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=5,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=["worker-1", "worker-2", "worker-3"],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        action = engine.calculate_scaling()
+        # Should scale down since no jobs and free workers
+        self.assertTrue(action.downscale or action.is_noop)
+
+    def test_calculate_scaling_with_running_jobs_only(self):
+        """Test scaling with only running jobs, no pending."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=2,
+            worker_in_use=["worker-1", "worker-2"],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[{"jobid": 1}, {"jobid": 2}],
+            jobs_pending_count=0,
+            jobs_running_count=2,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        action = engine.calculate_scaling()
+        # No free workers, no pending jobs -> noop
+        self.assertTrue(action.is_noop)
+
+    def test_get_most_demanding_job(self):
+        """Test _get_most_demanding_job selects highest memory job."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        jobs = [
+            {"req_mem": 1024, "req_cpus": 2},
+            {"req_mem": 4096, "req_cpus": 1},
+            {"req_mem": 2048, "req_cpus": 4},
+        ]
+        most_demanding = engine._get_most_demanding_job(jobs)
+        self.assertEqual(most_demanding["req_mem"], 4096)
+
+    def test_get_compatible_flavors_no_matches(self):
+        """Test _get_compatible_flavors when no flavors match."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[{"req_mem": 16384, "req_cpus": 16}],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        compatible = engine._get_compatible_flavors({"req_mem": 16384, "req_cpus": 16})
+        self.assertEqual(len(compatible), 0)
+
+    def test_select_flavor_no_flavors(self):
+        """Test _select_flavor with empty list."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        selected = engine._select_flavor([], {"req_mem": 1024, "req_cpus": 1})
+        self.assertIsNone(selected)
+
+
+class TestScalingEngineEdgeCases(unittest.TestCase):
+    """Tests for edge cases in ScalingEngine."""
+
+    def test_calculate_upscale_limit_with_zero_pending(self):
+        """Test upscale limit calculation with zero pending jobs."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        flavor = {"flavor": {"vcpus": 2, "ram_gib": 4, "available": 100}}
+        limit = engine._calculate_upscale_limit(flavor, 0)
+        # 0 * 0.6 = 0, but max(0, 1) = 1
+        self.assertEqual(limit, 1)
+
+    def test_calculate_upscale_limit_with_high_limit_workers(self):
+        """Test upscale limit when limit_workers is very high."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=1000,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=10,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        flavor = {"flavor": {"vcpus": 2, "ram_gib": 4, "available": 100}}
+        limit = engine._calculate_upscale_limit(flavor, 10)
+        # 10 * 0.6 = 6, no other limits apply
+        self.assertEqual(limit, 6)
+
+    def test_calculate_downscale_with_only_draining_workers(self):
+        """Test downscale when all workers are draining."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=3,
+            worker_in_use=[],
+            worker_drain=["worker-1", "worker-2", "worker-3"],
+            worker_free=["worker-1", "worker-2", "worker-3"],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        engine = ScalingEngine(context)
+        action = engine.calculate_scaling()
+        # All workers are draining, so no free workers to scale down
+        self.assertTrue(action.is_noop)
+
+    def test_can_scale_up_with_limit_reached(self):
+        """Test can_scale_up when limit is reached."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=5,
+            worker_count=5,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        self.assertFalse(context.can_scale_up)
+
+    def test_can_scale_down_with_zero_workers(self):
+        """Test can_scale_down when no workers exist."""
+        context = ScalingContext(
+            mode="basic",
+            scale_force=0.6,
+            scale_delay=60,
+            worker_cool_down=60,
+            limit_memory=0,
+            limit_worker_starts=0,
+            limit_workers=0,
+            worker_count=0,
+            worker_in_use=[],
+            worker_drain=[],
+            worker_free=[],
+            jobs_pending=[],
+            jobs_running=[],
+            jobs_pending_count=0,
+            jobs_running_count=0,
+            flavor_data=[],
+        )
+        self.assertFalse(context.can_scale_down)
+
 
 if __name__ == "__main__":
     unittest.main()
