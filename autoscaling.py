@@ -33,7 +33,7 @@ import pandas as pd
 import requests
 import yaml
 
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
 OUTDATED_SCRIPT_MSG = (
     "Your script is outdated [VERSION: {SCRIPT_VERSION} - latest is {LATEST_VERSION}] "
     "-  please download the current version and run it again!"
@@ -41,8 +41,8 @@ OUTDATED_SCRIPT_MSG = (
 
 PORTAL_LINK = "https://cloud.denbi.de"
 AUTOSCALING_VERSION_KEY = "AUTOSCALING_VERSION"
-AUTOSCALING_VERSION = "2.0.0"
-SCALE_DATA_VERSION = "0.7.0"
+AUTOSCALING_VERSION = "2.3.0"
+SCALING_TYPE = "autoscaling"
 
 REPO_LINK = "https://github.com/deNBI/autoscaling-cluster/"
 REPO_API_LINK = "https://api.github.com/repos/deNBI/autoscaling-cluster/"
@@ -53,7 +53,7 @@ HTTP_CODE_UNAUTHORIZED = 401
 HTTP_CODE_OUTDATED = 400
 AUTOSCALING_FOLDER = os.path.dirname(os.path.realpath(__file__)) + "/"
 SCALING_SCRIPT_FILE = AUTOSCALING_FOLDER + "scaling.py"
-
+REQUEST_TIMEOUT = 60
 IDENTIFIER = "autoscaling"
 
 FILE_CONFIG = IDENTIFIER + "_config.yaml"
@@ -80,7 +80,7 @@ NODE_MIX = "MIX"
 NODE_IDLE = "IDLE"
 NODE_DRAIN = "DRAIN"
 NODE_DOWN = "DOWN"
-NODE_DUMMY = "bibigrid-worker-autoscaling_dummy"
+NODE_DUMMY = "bibigrid-worker-autoscaling-dummy"
 NODE_DUMMY_REQ = True
 WORKER_SCHEDULING = "SCHEDULING"
 WORKER_PLANNED = "PLANNED"
@@ -1424,14 +1424,17 @@ def get_cluster_data():
     try:
         json_data = {
             "password": __get_cluster_password(),
-            "version": SCALE_DATA_VERSION,
+            "scaling_type": SCALING_TYPE,
+            "version": AUTOSCALING_VERSION,
         }
-        response = requests.post(url=get_url_info_cluster(), json=json_data)
+        response = requests.post(
+            url=get_url_info_cluster(), json=json_data, timeout=(30, REQUEST_TIMEOUT)
+        )
         # logger.debug("response code %s, send json_data %s", response.status_code, json_data)
 
         if response.status_code == HTTP_CODE_OK:
             res = response.json()
-            version_check_scale_data(res["VERSION"])
+            version_check_scale_data(res["AUTOSCALING_VERSION"])
             logger.debug(pformat(res))
             return res
         else:
@@ -1617,6 +1620,26 @@ def flavor_mod_gpu(flavors_data):
     return flavors_data_mod
 
 
+def filter_flavor_by_allowed_names(flavors_data):
+    allowed = set(config_mode.get("allowed_flavor_names", []))
+
+    if not allowed:
+        logger.debug("No allowed flavors specified – allowing all.")
+        return flavors_data
+
+    logger.info(f"Filtering flavors by allowed flavor names: {allowed}")
+
+    filtered = [f for f in flavors_data if f.get("flavor", {}).get("name") in allowed]
+
+    logger.debug(
+        "Flavor filtering reduced list from %d to %d",
+        len(flavors_data),
+        len(filtered),
+    )
+
+    return filtered
+
+
 def get_usable_flavors(quiet, cut):
     """
     Receive flavor information from portal.
@@ -1629,11 +1652,17 @@ def get_usable_flavors(quiet, cut):
     try:
         res = requests.post(
             url=get_url_info_flavors(),
-            json={"password": __get_cluster_password(), "version": AUTOSCALING_VERSION},
+            timeout=(30, REQUEST_TIMEOUT),
+            json={
+                "password": __get_cluster_password(),
+                "version": AUTOSCALING_VERSION,
+                "scaling_type": SCALING_TYPE,
+            },
         )
 
         if res.status_code == HTTP_CODE_OK:
             flavors_data = res.json()
+            flavors_data = filter_flavor_by_allowed_names(flavors_data=flavors_data)
             flavors_data = sorted(
                 flavors_data,
                 key=lambda k: (
@@ -1671,7 +1700,6 @@ def get_usable_flavors(quiet, cut):
                 # self selected high memory limit
                 if (
                     config_mode["limit_flavor_usage"]
-                    and fd["flavor"]["type"]["shortcut"] == FLAVOR_HIGH_MEM
                     and fd["flavor"]["name"] in config_mode["limit_flavor_usage"]
                 ):
                     user_fv_limit = int(
@@ -3593,12 +3621,11 @@ def __calculate_scale_up_data(
                     logger.error(
                         "flavor_default is active, but selected flavor not meet the requirements for minimal flavor"
                     )
-                    return None, worker_memory_usage
+
             else:
                 logger.error(
                     "flavor_default is active, selected flavor is not available"
                 )
-                return None, worker_memory_usage
 
         average_jobs_per_flavor = __multiple_jobs_per_flavor(
             flavor_tmp,
@@ -4156,7 +4183,10 @@ def multiscale(flavor_data):
 
 def __cloud_api_(portal_url_scale, worker_data):
     logger.debug(f"---Scaling -- {portal_url_scale}\n\n\t {worker_data}")
-    response = requests.post(url=portal_url_scale, json=worker_data)
+    worker_data.update({"scaling_type": SCALING_TYPE})
+    response = requests.post(
+        url=portal_url_scale, json=worker_data, timeout=(30, REQUEST_TIMEOUT)
+    )
     logger.debug(response.raise_for_status())
     logger.info("response code: %s, message: %s", response.status_code, response.text)
 
@@ -4464,15 +4494,13 @@ def cluster_scale_down_specific_hostnames_list(worker_hostnames, rescale):
 def update_all_yml_files_and_run_playbook():
     # Download the scaling.py script
     scaling_script_url = __get_scaling_script_url()
-    if update_scaling_script(url=scaling_script_url,filename=SCALING_SCRIPT_FILE):
-
-
+    if update_scaling_script(url=scaling_script_url, filename=SCALING_SCRIPT_FILE):
+        logger.debug("Run Scaling script--.")
         # Run the scaling.py script
         command = ["python3", SCALING_SCRIPT_FILE, "-p", __get_cluster_password()]
         subprocess.run(command)
     else:
         logger.error(f"Failed to download script from {scaling_script_url}.")
-
 
 
 def update_scaling_script(url, filename):
@@ -4491,17 +4519,17 @@ def update_scaling_script(url, filename):
     if not os.path.exists(etag_filename) or not os.path.exists(md5_filename):
         logger.debug(f"etag or md5 file for {filename} not present. Saving files...")
         # Save .md5 and .etag
-        with open(md5_filename, 'w') as f:
+        with open(md5_filename, "w") as f:
             f.write(calculate_md5(filename))
         response = requests.head(url)  # Use HEAD request to get headers only
         response.raise_for_status()
-        remote_etag = response.headers.get('ETag')
-        with open(etag_filename, 'w') as f:
+        remote_etag = response.headers.get("ETag")
+        with open(etag_filename, "w") as f:
             f.write(remote_etag)
 
     else:
         existing_md5 = None
-        with open(md5_filename, 'r') as f:
+        with open(md5_filename, "r") as f:
             existing_md5 = f.read().strip()
 
         calculated_md5 = calculate_md5(filename)
@@ -4511,49 +4539,50 @@ def update_scaling_script(url, filename):
             if not download_file(url, filename):
                 return False
             # Save new .md5 and .etag after redownload
-            with open(md5_filename, 'w') as f:
+            with open(md5_filename, "w") as f:
                 f.write(calculate_md5(filename))  # Calculate after download
             response = requests.head(url)  # Use HEAD request to get headers only
             response.raise_for_status()
-            remote_etag = response.headers.get('ETag')
-            with open(etag_filename, 'w') as f:
+            remote_etag = response.headers.get("ETag")
+            with open(etag_filename, "w") as f:
                 f.write(remote_etag)
         else:
             existing_etag = None
-            with open(etag_filename, 'r') as f:
+            with open(etag_filename, "r") as f:
                 existing_etag = f.read().strip()
 
             response = requests.head(url)  # Use HEAD request to get headers only
             response.raise_for_status()
-            remote_etag = response.headers.get('ETag')
+            remote_etag = response.headers.get("ETag")
 
             if remote_etag and remote_etag != existing_etag:
                 logger.debug(f"etag mismatch - {filename} ! Downloading...")
                 if not download_file(url, filename):
                     return False
                 # Save new .md5 and .etag after redownload
-                with open(md5_filename, 'w') as f:
+                with open(md5_filename, "w") as f:
                     f.write(calculate_md5(filename))  # Calculate after download
-                with open(etag_filename, 'w') as f:
+                with open(etag_filename, "w") as f:
                     f.write(remote_etag)
             else:
                 logger.debug("File {file} is up to date. Doing nothing.")
 
     return True  # Check completed
 
+
 def download_file(url, filename):
     """Downloads a file from a URL."""
     try:
         logger.info(f"Downloading {filename} script from: {url}")
 
-        response = requests.get(url, stream=True)
+        response = requests.get(url, stream=True, timeout=(30, REQUEST_TIMEOUT))
         response.raise_for_status()  # Raise HTTPError for bad responses
 
-        with open(filename, 'wb') as f:
+        with open(filename, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-        
-        logger.info("File downloaded and saved: %s",filename)
+
+        logger.info("File downloaded and saved: %s", filename)
         return True  # Download successful
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during download: {e}")
@@ -4563,10 +4592,11 @@ def download_file(url, filename):
 def calculate_md5(file_path):
     """Calculates the MD5 checksum of a file."""
     md5 = hashlib.md5()
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
             md5.update(chunk)
     return md5.hexdigest()
+
 
 def cluster_scale_down_specific(worker_json, worker_num, rescale, jobs_dict):
     """
@@ -5572,10 +5602,10 @@ def version_check_scale_data(version):
     :param version: current version from cloud api
     :return:
     """
-    if version != SCALE_DATA_VERSION:
+    if version != AUTOSCALING_VERSION:
         logger.warning(
             OUTDATED_SCRIPT_MSG.format(
-                SCRIPT_VERSION=SCALE_DATA_VERSION, LATEST_VERSION=version
+                SCRIPT_VERSION=AUTOSCALING_VERSION, LATEST_VERSION=version
             )
         )
         automatic_update(latest_version=version)
@@ -5599,8 +5629,8 @@ def version_check(version):
 
 def get_latest_release_tag():
     release_url = REPO_API_LINK + "releases/latest"
-    response = requests.get(release_url)
-    latest_release = response.json()
+    response = requests.get(release_url, timeout=(30, REQUEST_TIMEOUT))
+    latest_release = (response.json(),)
     logger.info(f"latest release: {latest_release}")
 
     latest_tag = latest_release["tag_name"]
@@ -5762,7 +5792,7 @@ def update_file(file_location, url, filename):
     """
     try:
         logger.debug("download new  %s", filename)
-        res = requests.get(url, allow_redirects=True)
+        res = requests.get(url, allow_redirects=True, timeout=(30, REQUEST_TIMEOUT))
         if res.status_code == HTTP_CODE_OK:
             open(file_location, "wb").write(res.content)
             return True
