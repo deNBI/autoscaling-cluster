@@ -46,7 +46,7 @@
    "constraints": {
       "python": "3.8"
    },
-   "baseBranches": [
+   "baseBranchPatterns": [
       "dev"
    ],
    "reviewers": [
