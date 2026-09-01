@@ -1,66 +1,66 @@
 {
-   "extends": [
-      "config:recommended",
-      "helpers:pinGitHubActionDigests"
-
-   ],
-   "packageRules": [
-      {
-         "matchUpdateTypes": [
-            "major"
-         ],
-         "addLabels": [
-            "major"
-         ]
-      },
-      {
-         "matchUpdateTypes": [
-            "minor"
-         ],
-         "addLabels": [
-            "minor"
-         ]
-      },
-      {
-         "matchUpdateTypes": [
-            "patch"
-         ],
-         "addLabels": [
-            "patch"
-         ]
-      },
-      {
-         "matchUpdateTypes": [
-            "pin"
-         ],
-         "addLabels": [
-            "pin"
-         ]
-      }
-   ],
-   "vulnerabilityAlerts": {
-      "labels": [
-         "security"
+  "extends": [
+    "config:best-practices",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "addLabels": [
+        "major"
       ]
-   },
-   "constraints": {
-      "python": "3.14"
-   },
-   "baseBranchPatterns": [
-      "dev"
-   ],
-   "reviewers": [
-      "team:portal-dev"
-   ],
-   "labels": [
-      "dependencies"
-   ],
-   "assignees": [
-      "team:portal-dev"
-   ],
-   "branchPrefix": "deps/",
-   "bumpVersion": "minor",
-   "rebaseWhen": "behind-base-branch",
-   "commitBodyTable": true,
-   "commitMessagePrefix": "feat(Dependencies):"
+    },
+    {
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "addLabels": [
+        "minor"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "addLabels": [
+        "patch"
+      ]
+    },
+    {
+      "matchUpdateTypes": [
+        "pin"
+      ],
+      "addLabels": [
+        "pin"
+      ],
+      "enabled": false
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security"
+    ]
+  },
+  "constraints": {
+    "python": "3.14"
+  },
+  "baseBranchPatterns": [
+    "dev"
+  ],
+  "reviewers": [
+    "team:portal-dev"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "assignees": [
+    "team:portal-dev"
+  ],
+  "branchPrefix": "deps/",
+  "bumpVersion": "minor",
+  "rebaseWhen": "behind-base-branch",
+  "commitBodyTable": true,
+  "commitMessagePrefix": "feat(Dependencies):"
 }
