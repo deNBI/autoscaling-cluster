@@ -1,5 +1,5 @@
 Cython==3.2.9
-matplotlib==3.11.1
+matplotlib==3.11.2
 numpy==2.5.3
 pandas==3.0.5
 PyYAML==6.0.3
